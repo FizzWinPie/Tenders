@@ -7,77 +7,45 @@ from datetime import date
 import PyPDF2
 from google import genai
 
-# get all necessary fields (preferably without calling get instance) 
-# -> put into df for pandas to filter and find relevant spa keywords and order them 
-# -> use ai agent to find top 3 given context 
-# -> run automatically with github worker 
-# -> store data in postgres + dashboard display (optional)
-
-KEEP_LANGS = ("deu", "eng")
-KEEP_LANGS_UPPER = ("DEU", "ENG")
-
-def filter_languages(obj):
-    """Keep only deu/eng in locale-keyed dicts; recurse into nested structures."""
-    if isinstance(obj, dict):
-        keys = list(obj.keys())
-        if keys and all(len(k) == 3 and k.isalpha() for k in keys):
-            if all(k.islower() for k in keys):
-                return {k: obj[k] for k in keys if k in KEEP_LANGS}
-            if all(k.isupper() for k in keys):
-                return {k: obj[k] for k in keys if k in KEEP_LANGS_UPPER}
-        return {k: filter_languages(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [filter_languages(item) for item in obj]
-    return obj
-
-
 def search_all_tenders(publication_date):
     pdf_links = []
     url = "https://api.ted.europa.eu/v3/notices/search"
     body = {
-        "query": f"CY=DEU AND publication-date={publication_date} SORT BY publication-number DESC",
-        "fields": [                                 # what information we get
-            # Buyer Info
-            "buyer-name",
-            "buyer-identifier",
-            "buyer-city",
-            "main-activity",
-            "buyer-country",
-            "buyer-legal-type",
-            "corporate-body",
-            "organisation-email-buyer",
-            "business-email",
+        "query": f"classification-cpv=48000000 AND submission-language IN (ENG DEU) AND buyer-country IN (AUT DEU CHE) AND publication-date=20260227",
+        "fields": [  
+            "publication-number",
+            "links"
         ],
         "limit": 10,
         "page": 1,
-        "scope": "ACTIVE"
+        "scope": "ACTIVE",
     }
 
     headers = {
-        'X-API-KEY': os.getenv('EU_TENDER_API_KEY'),
-        'Content-Type': "application/json",
-        'Accept': "application/json"
+        "X-API-KEY": os.getenv("EU_TENDER_API_KEY"),
+        "Content-Type": "application/json",
+        "Accept": "application/json",
     }
 
     try:
         response = requests.post(url, json=body, headers=headers)
-        
+
         if response.status_code != 200:
             print(f"Status: {response.status_code}")
-            print(f"Server Response: {response.text}") 
+            print(f"Server Response: {response.text}")
             return
-        
+
         data = response.json()
-        for notice in data.get('notices', []):
-            notice = filter_languages(notice)
-            pdf = (notice.get('links') or {}).get('pdf') or {}
-            url = pdf.get('DEU') or (next(iter(pdf.values()), None) if pdf else None)
+        for notice in data.get("notices", []):
+            pdf = (notice.get("links") or {}).get("pdf") or {}
+            url = pdf.get("DEU") or pdf.get("ENG")
             if url:
                 pdf_links.append(url)
         return pdf_links
-    
+
     except requests.exceptions.RequestException as e:
-        print(f'Request failed: {e}')
+        print(f"Request failed: {e}")
+
 
 def get_pdf_content(link):
     try:
@@ -85,22 +53,45 @@ def get_pdf_content(link):
         if res.status_code != 200:
             return None
     except requests.exceptions.RequestException as e:
-        print(f'Request to pdf failed: {e}')
+        print(f"Request to pdf failed: {e}")
     return res.content
+
 
 def convert_pdf_content_to_text(content):
     reader = PyPDF2.PdfReader(io.BytesIO(content))
-    text = "".join(reader.pages[i].extract_text() or "" for i in range(len(reader.pages)))
-    # print(text)
+    text = "".join(
+        reader.pages[i].extract_text() or "" for i in range(len(reader.pages))
+    )
     return text
+
 
 def agent_search(input):
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    # If input is a list of tender texts, join with clear separators so the model can tell them apart
-    content = input if isinstance(input, str) else "\n\n---\n\n".join(str(t) for t in input)
+    agent_context = """
+        ### ROLE
+        You are a Precision Document Analyst. Your goal is to extract and analyze procurement data with 100% factual accuracy.
+
+        ### MANDATORY GROUNDING RULES
+        1. ONLY use the information provided in the [Tender Context] below.
+        2. If the [Tender Context] does NOT contain the specific information requested, output "Information not available."
+        3. DO NOT use external knowledge, internet data, or your own training data to fill in gaps.
+        4. DO NOT infer, assume, or guess the scope of work if it is not explicitly stated.
+        5. If the [Tender Context] is in a language you don't fully understand or the text is corrupted/unclear, respond with: "Unclear context - manually review required."
+
+        ### PROHIBITIONS
+        - No "hallucinating" or "making up" details.
+        - No adding features or services to the tender that aren't written in the text.
+        - No assuming a tender is for "S/4HANA" just because it mentions "SAP" (it must be explicitly stated).
+
+        ### OUTPUT FORMAT
+        If a match is found, provide a 1-sentence justification. If no match is found, state: "No Match - Insufficient Data."
+        """
+    content = (
+        input if isinstance(input, str) else "\n\n---\n\n".join(str(t) for t in input)
+    )
     res = client.models.generate_content(
         model="gemini-2.5-flash-lite",
-        contents=f"Analyze the following tenders and find those relevant to SPA. Return the id and 1 short sentence summary of why it's relevant. The input:\n\n{content}",
+        contents=f"{agent_context}. These are the tenders: {content}",
     )
     text = getattr(res, "text", None) or ""
     results_path = "results.json"
