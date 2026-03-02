@@ -8,9 +8,11 @@ from datetime import date
 import PyPDF2
 from sqlalchemy.orm import Session
 from google import genai
-from fastapi import Depends, FastAPI
+from google.genai import errors as genai_errors
+from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel
 import logging
+from fastapi.responses import JSONResponse
 from db import Base, engine, get_db
 from models import Run, Tender, TenderAnalysis
 
@@ -23,6 +25,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# change to add query as FY~{text such as SAP} for filtering where word is present
+# add field as "publication-lot"   # get description at 5. Lot 5.1 -> only feed this to agent
 def search_all_tenders(publication_date):
     tenders = []
     url = "https://api.ted.europa.eu/v3/notices/search"
@@ -87,6 +91,7 @@ def convert_pdf_content_to_text(content):
     return text
 
 
+# TODO: figure out a way to make boolean switch cleaner
 def agent_search(input):
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     agent_context = """
@@ -106,28 +111,53 @@ def agent_search(input):
         - No assuming a tender is for "S/4HANA" just because it mentions "SAP" (it must be explicitly stated).
 
         ### OUTPUT FORMAT
-        If a match is found, provide a 1-sentence justification. If no match is found, state: "No Match - Insufficient Data."
+        Respond ONLY with a single valid JSON object in this exact shape:
+        {
+            "relevant": true or false,
+            "reason": "single-sentence justification explaining why or why not"
+        }
+        Do not include any additional text before or after the JSON.
         """
     content = (
         input if isinstance(input, str) else "\n\n---\n\n".join(str(t) for t in input)
     )
-    res = client.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents=f"{agent_context}. These are the tenders: {content}",
-    )
-    text = getattr(res, "text", None) or ""
+    try:
+        res = client.models.generate_content(
+            model=os.getenv("GEMINI_AGENT_MODEL") or "gemini-2.5-flash-lite", 
+            contents=f"{agent_context}. These are the tenders: {content}",
+        )
+    except genai_errors.ClientError as e:
+        logger.warning("Gemini client error (max quota limit reached) during agent_search: %s", e)
+        return None
+    except genai_errors.ServerError as e:
+        logger.warning("Gemini service unavailable during agent_search: %s", e)
+        return None
+    except Exception:
+        logger.exception("Unexpected error during agent_search")
+        return None
+
+    raw_text = getattr(res, "text", None) or ""
+    try:
+        parsed = json.loads(raw_text)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse agent_search response as JSON: %s", raw_text)
+        return None
+
+    if not isinstance(parsed, dict) or "relevant" not in parsed:
+        logger.warning("agent_search returned JSON without required keys: %s", parsed)
+        return None
+
     results_path = "results.json"
     if os.path.exists(results_path):
         with open(results_path, "r", encoding="utf-8") as f:
             results = json.load(f)
     else:
         results = []
-    results.append({"response": text, "timestamp": date.today().isoformat()})
+    results.append({"response": parsed, "timestamp": date.today().isoformat()})
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
     
-    return text
-
+    return parsed
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -135,6 +165,23 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+@app.middleware("http")
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except genai_errors.ServerError as e:
+        logger.error("Gemini upstream error on %s %s: %s", request.method, request.url, e)
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Upstream AI service is temporarily unavailable."},
+        )
+    except Exception as e:
+        logger.exception("Unhandled error on %s %s", request.method, request.url)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error."},
+        )
 
 @app.get("/")
 def read_root():
@@ -165,42 +212,55 @@ def run_pipeline(db: Session = Depends(get_db)):
         link = tender["pdf_link"]
         publication_id = tender["id"]
 
-        tender_obj = db.get(Tender, publication_id)
-        if tender_obj is None:
-            tender_obj = Tender(
-                id=publication_id,
-                pdf_link=link,
-                first_seen_publication_date=publication_date,
+        try:
+            tender_obj = db.get(Tender, publication_id)
+            if tender_obj is None:
+                tender_obj = Tender(
+                    id=publication_id,
+                    pdf_link=link,
+                    first_seen_publication_date=publication_date,
+                )
+                db.add(tender_obj)
+
+            content = get_pdf_content(link)
+            if not content:
+                continue
+
+            text = convert_pdf_content_to_text(content)
+            ai_result = agent_search(text)
+
+            if not ai_result:
+                continue
+
+            # ai_result is expected to be a dict like {"relevant": bool, "reason": str}
+            if not isinstance(ai_result, dict):
+                logger.warning("agent_search returned non-dict result for %s: %s", publication_id, ai_result)
+                continue
+
+            is_relevant = bool(ai_result.get("relevant"))
+            reason = str(ai_result.get("reason") or "")
+
+            if not is_relevant:
+                continue
+
+            analysis_row = TenderAnalysis(
+                run=run,
+                tender=tender_obj,
+                analysis=json.dumps(ai_result, ensure_ascii=False),
             )
-            db.add(tender_obj)
+            db.add(analysis_row)
 
-        content = get_pdf_content(link)
-        if not content:
+            relevant_tenders.append(
+                {
+                    "id": publication_id,
+                    "pdf_link": link,
+                    "relevant": True,
+                    "reason": reason,
+                }
+            )
+        except Exception:
+            logger.exception("Failed processing tender %s", publication_id)
             continue
-
-        text = convert_pdf_content_to_text(content)
-        ai_result = agent_search(text)
-
-        if not ai_result:
-            continue
-
-        if ai_result.strip().startswith("No Match - Insufficient Data.") or ai_result.strip().startswith("Information not available."):
-            continue
-
-        analysis_row = TenderAnalysis(
-            run=run,
-            tender=tender_obj,
-            analysis=ai_result,
-        )
-        db.add(analysis_row)
-
-        relevant_tenders.append(
-            {
-                "id": publication_id,
-                "pdf_link": link,
-                "analysis": ai_result,
-            }
-        )
 
     relevant_number_tenders = len(relevant_tenders)
 
