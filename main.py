@@ -20,10 +20,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def search_all_tenders(publication_date):
-    pdf_links = []
+    tenders = []
     url = "https://api.ted.europa.eu/v3/notices/search"
     body = {
-        "query": f"classification-cpv=48000000 AND submission-language IN (ENG DEU) AND buyer-country IN (AUT DEU CHE) AND publication-date=20260227",
+        "query": f"classification-cpv=48000000 AND submission-language IN (ENG DEU) AND buyer-country IN (AUT DEU CHE) AND publication-date={publication_date}",
         "fields": [  
             "publication-number",
             "links"
@@ -44,18 +44,25 @@ def search_all_tenders(publication_date):
 
         if response.status_code != 200:
             logger.error("Tender API call failed. Status: %s, Response: %s", response.status_code, response.text)
-            return
+            return []
 
         data = response.json()
         for notice in data.get("notices", []):
             pdf = (notice.get("links") or {}).get("pdf") or {}
-            url = pdf.get("DEU") or pdf.get("ENG")
-            if url:
-                pdf_links.append(url)
-        return pdf_links
+            pdf_url = pdf.get("DEU") or pdf.get("ENG")
+            publication_id = notice.get("publication-number")
+            if pdf_url and publication_id:
+                tenders.append(
+                    {
+                        "id": publication_id,
+                        "pdf_link": pdf_url,
+                    }
+                )
+        return tenders
 
     except requests.exceptions.RequestException as e:
         logger.error("Tender API request failed: %s", e)
+        return []
 
 
 def get_pdf_content(link):
@@ -123,26 +130,46 @@ app = FastAPI()
 def read_root():
     return {"message" : "Server is healthy"}
 
-@app.get("/tenders/run")
+@app.get("/run")
 def run_pipeline():
     today = date.today()
-    today_str = f"{today.year}{today.month:02d}{today.day-1:02d}"
+    publication_date = f"{today.year}{today.month:02d}{today.day:02d}"
 
-    pdf_links = search_all_tenders(today_str)
-    agent_input = []
-    for link in pdf_links:
+    tenders = search_all_tenders(publication_date)
+    total_number_tenders = len(tenders)
+
+    relevant_tenders = []
+
+    for tender in tenders:
+        link = tender["pdf_link"]
+        publication_id = tender["id"]
+
         content = get_pdf_content(link)
         if not content:
             continue
-        text = convert_pdf_content_to_text(content)
 
-        agent_input.append(text)
-    if not agent_input:
-        return {"error": "No PDF content extracted"}
-    ai_result = agent_search(agent_input)
+        text = convert_pdf_content_to_text(content)
+        ai_result = agent_search(text)
+
+        if not ai_result:
+            continue
+
+        if ai_result.strip().startswith("No Match - Insufficient Data.") or ai_result.strip().startswith("Information not available."):
+            continue
+
+        relevant_tenders.append(
+            {
+                "id": publication_id,
+                "pdf_link": link,
+                "analysis": ai_result,
+            }
+        )
+
+    relevant_number_tenders = len(relevant_tenders)
 
     return {
-        "publication_date": today_str,
-        "pdf_links": pdf_links,
-        "analysis": ai_result,
+        "publication_date": publication_date,
+        "total_number_tenders": total_number_tenders,
+        "relevant_number_tenders": relevant_number_tenders,
+        "tenders": relevant_tenders,
     }
