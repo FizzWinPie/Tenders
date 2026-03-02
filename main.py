@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import requests
 from dotenv import load_dotenv
 import os
@@ -5,10 +6,13 @@ import json
 import io
 from datetime import date
 import PyPDF2
+from sqlalchemy.orm import Session
 from google import genai
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from pydantic import BaseModel
 import logging
+from db import Base, engine, get_db
+from models import Run, Tender, TenderAnalysis
 
 load_dotenv()
 
@@ -124,25 +128,51 @@ def agent_search(input):
     
     return text
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/")
+def read_root():
+    return {"message" : "Welcome to app"}
 
 @app.get("/health")
 def read_root():
     return {"message" : "Server is healthy"}
 
 @app.get("/run")
-def run_pipeline():
+def run_pipeline(db: Session = Depends(get_db)):
     today = date.today()
     publication_date = f"{today.year}{today.month:02d}{today.day:02d}"
 
     tenders = search_all_tenders(publication_date)
     total_number_tenders = len(tenders)
 
+    run = Run(
+        run_date=today.isoformat(),
+        publication_date=publication_date,
+    )
+    db.add(run)
+    db.flush()
+
     relevant_tenders = []
 
     for tender in tenders:
         link = tender["pdf_link"]
         publication_id = tender["id"]
+
+        tender_obj = db.get(Tender, publication_id)
+        if tender_obj is None:
+            tender_obj = Tender(
+                id=publication_id,
+                pdf_link=link,
+                first_seen_publication_date=publication_date,
+            )
+            db.add(tender_obj)
 
         content = get_pdf_content(link)
         if not content:
@@ -157,6 +187,13 @@ def run_pipeline():
         if ai_result.strip().startswith("No Match - Insufficient Data.") or ai_result.strip().startswith("Information not available."):
             continue
 
+        analysis_row = TenderAnalysis(
+            run=run,
+            tender=tender_obj,
+            analysis=ai_result,
+        )
+        db.add(analysis_row)
+
         relevant_tenders.append(
             {
                 "id": publication_id,
@@ -166,6 +203,11 @@ def run_pipeline():
         )
 
     relevant_number_tenders = len(relevant_tenders)
+
+    run.total_tenders = total_number_tenders
+    run.relevant_tenders = relevant_number_tenders
+
+    db.commit()
 
     return {
         "publication_date": publication_date,
