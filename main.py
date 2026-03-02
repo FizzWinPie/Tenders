@@ -6,6 +6,18 @@ import io
 from datetime import date
 import PyPDF2
 from google import genai
+from fastapi import FastAPI
+from pydantic import BaseModel
+import logging
+
+load_dotenv()
+
+logging.basicConfig(
+    level = logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+)
+
+logger = logging.getLogger(__name__)
 
 def search_all_tenders(publication_date):
     pdf_links = []
@@ -31,8 +43,7 @@ def search_all_tenders(publication_date):
         response = requests.post(url, json=body, headers=headers)
 
         if response.status_code != 200:
-            print(f"Status: {response.status_code}")
-            print(f"Server Response: {response.text}")
+            logger.error("Tender API call failed. Status: %s, Response: %s", response.status_code, response.text)
             return
 
         data = response.json()
@@ -44,7 +55,7 @@ def search_all_tenders(publication_date):
         return pdf_links
 
     except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
+        logger.error("Tender API request failed: %s", e)
 
 
 def get_pdf_content(link):
@@ -53,7 +64,7 @@ def get_pdf_content(link):
         if res.status_code != 200:
             return None
     except requests.exceptions.RequestException as e:
-        print(f"Request to pdf failed: {e}")
+        logger.error("Request to PDF failed for %s: %s", link, e)
     return res.content
 
 
@@ -103,16 +114,35 @@ def agent_search(input):
     results.append({"response": text, "timestamp": date.today().isoformat()})
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False)
+    
+    return text
 
+app = FastAPI()
 
-if __name__ == "__main__":
-    load_dotenv()
+@app.get("/health")
+def read_root():
+    return {"message" : "Server is healthy"}
+
+@app.get("/tenders/run")
+def run_pipeline():
     today = date.today()
     today_str = f"{today.year}{today.month:02d}{today.day-1:02d}"
+
     pdf_links = search_all_tenders(today_str)
     agent_input = []
     for link in pdf_links:
         content = get_pdf_content(link)
+        if not content:
+            continue
         text = convert_pdf_content_to_text(content)
+
         agent_input.append(text)
-    agent_search(agent_input)
+    if not agent_input:
+        return {"error": "No PDF content extracted"}
+    ai_result = agent_search(agent_input)
+
+    return {
+        "publication_date": today_str,
+        "pdf_links": pdf_links,
+        "analysis": ai_result,
+    }
