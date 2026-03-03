@@ -1,0 +1,8 @@
+requests
+python-dotenv
+PyPDF2
+google-genai
+fastapi
+uvicorn
+pydantic
+SQLAlchemy

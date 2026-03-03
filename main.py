@@ -9,7 +9,7 @@ import PyPDF2
 from sqlalchemy.orm import Session
 from google import genai
 from google.genai import errors as genai_errors
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request
 from pydantic import BaseModel
 import logging
 from fastapi.responses import JSONResponse
@@ -25,16 +25,20 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# change to add query as FY~{text such as SAP} for filtering where word is present
+# change to add query as FT~{text such as SAP} for filtering where word is present
 # add field as "publication-lot"   # get description at 5. Lot 5.1 -> only feed this to agent
-def search_all_tenders(publication_date):
+def search_all_tenders(publication_date: str, keyword: str):
     tenders = []
     url = "https://api.ted.europa.eu/v3/notices/search"
     body = {
-        "query": f"classification-cpv=48000000 AND submission-language IN (ENG DEU) AND buyer-country IN (AUT DEU CHE) AND publication-date={publication_date}",
+        "query": f"classification-cpv=48000000 AND submission-language IN (ENG DEU) AND buyer-country IN (AUT DEU CHE) AND publication-date={publication_date} AND FT~'{keyword}'",
         "fields": [  
-            "publication-number",
-            "links"
+            "publication-number",   # Notice ID ex. 144585-2026
+            "links",        # pdf, xml, html links
+            "BT-137-Lot",   # Lot identifier ex. LOT-0001
+            "BT-21-Lot",    # Lot title
+            "BT-24-Lot",    # Lot description
+            "BT-22-Lot"     # Lot Procedure Internal identifier
         ],
         "limit": 10,
         "page": 1,
@@ -59,11 +63,20 @@ def search_all_tenders(publication_date):
             pdf = (notice.get("links") or {}).get("pdf") or {}
             pdf_url = pdf.get("DEU") or pdf.get("ENG")
             publication_id = notice.get("publication-number")
+            lot_identifier = notice.get("BT-137-Lot")
+            lot_title = notice.get("BT-21-Lot")
+            lot_description = notice.get("BT-24-Lot")
+            lot_procedure_id = notice.get("BT-22-Lot")
+
             if pdf_url and publication_id:
                 tenders.append(
                     {
                         "id": publication_id,
                         "pdf_link": pdf_url,
+                        "lot_identifier": lot_identifier,
+                        "lot_title": lot_title,
+                        "lot_description": lot_description,
+                        "lot_procedure_id": lot_procedure_id,
                     }
                 )
         return tenders
@@ -71,25 +84,6 @@ def search_all_tenders(publication_date):
     except requests.exceptions.RequestException as e:
         logger.error("Tender API request failed: %s", e)
         return []
-
-
-def get_pdf_content(link):
-    try:
-        res = requests.get(link)
-        if res.status_code != 200:
-            return None
-    except requests.exceptions.RequestException as e:
-        logger.error("Request to PDF failed for %s: %s", link, e)
-    return res.content
-
-
-def convert_pdf_content_to_text(content):
-    reader = PyPDF2.PdfReader(io.BytesIO(content))
-    text = "".join(
-        reader.pages[i].extract_text() or "" for i in range(len(reader.pages))
-    )
-    return text
-
 
 # TODO: figure out a way to make boolean switch cleaner
 def agent_search(input):
@@ -191,87 +185,99 @@ def read_root():
 def read_root():
     return {"message" : "Server is healthy"}
 
-@app.get("/run")
-def run_pipeline(db: Session = Depends(get_db)):
+@app.get("/run-filtered")
+def run_filtered_search(input_date: str, keyword: str, db: Session = Depends(get_db)):
     today = date.today()
-    publication_date = f"{today.year}{today.month:02d}{today.day:02d}"
+    if not input_date:
+        input_date = f"{today.year}{today.month:02d}{today.day:02d}"
 
-    tenders = search_all_tenders(publication_date)
+    tenders = search_all_tenders(input_date, keyword)
     total_number_tenders = len(tenders)
 
     run = Run(
         run_date=today.isoformat(),
-        publication_date=publication_date,
+        publication_date=input_date,
+        total_tenders=total_number_tenders,
     )
     db.add(run)
     db.flush()
 
-    relevant_tenders = []
+    results_with_summaries = []
 
     for tender in tenders:
-        link = tender["pdf_link"]
         publication_id = tender["id"]
+        pdf_link = tender["pdf_link"]
+        lot_title = tender.get("lot_title") or ""
+        lot_description = tender.get("lot_description") or ""
+        lot_identifier = tender.get("lot_identifier") or ""
+        lot_procedure_id = tender.get("lot_procedure_id") or ""
+
+        tender_context = f"Lot: {lot_identifier} | Procedure: {lot_procedure_id}\nTitle: {lot_title}\nDescription: {lot_description}"
+        ai_result = agent_search(tender_context)
+
+        if ai_result is None:
+            results_with_summaries.append(
+                {
+                    "id": publication_id,
+                    "pdf_link": pdf_link,
+                    "lot_title": lot_title,
+                    "relevant": None,
+                    "reason": "Analysis unavailable (e.g. quota or service error).",
+                }
+            )
+            continue
+
+        if not isinstance(ai_result, dict):
+            logger.warning("agent_search returned non-dict result for %s: %s", publication_id, ai_result)
+            results_with_summaries.append(
+                {
+                    "id": publication_id,
+                    "pdf_link": pdf_link,
+                    "lot_title": lot_title,
+                    "relevant": None,
+                    "reason": "Invalid agent response.",
+                }
+            )
+            continue
+
+        is_relevant = bool(ai_result.get("relevant"))
+        reason = str(ai_result.get("reason") or "")
 
         try:
             tender_obj = db.get(Tender, publication_id)
             if tender_obj is None:
                 tender_obj = Tender(
                     id=publication_id,
-                    pdf_link=link,
-                    first_seen_publication_date=publication_date,
+                    pdf_link=pdf_link,
+                    first_seen_publication_date=input_date,
                 )
                 db.add(tender_obj)
 
-            content = get_pdf_content(link)
-            if not content:
-                continue
-
-            text = convert_pdf_content_to_text(content)
-            ai_result = agent_search(text)
-
-            if not ai_result:
-                continue
-
-            # ai_result is expected to be a dict like {"relevant": bool, "reason": str}
-            if not isinstance(ai_result, dict):
-                logger.warning("agent_search returned non-dict result for %s: %s", publication_id, ai_result)
-                continue
-
-            is_relevant = bool(ai_result.get("relevant"))
-            reason = str(ai_result.get("reason") or "")
-
-            if not is_relevant:
-                continue
-
             analysis_row = TenderAnalysis(
-                run=run,
-                tender=tender_obj,
+                run_id=run.id,
+                tender_id=publication_id,
                 analysis=json.dumps(ai_result, ensure_ascii=False),
             )
             db.add(analysis_row)
-
-            relevant_tenders.append(
-                {
-                    "id": publication_id,
-                    "pdf_link": link,
-                    "relevant": True,
-                    "reason": reason,
-                }
-            )
         except Exception:
-            logger.exception("Failed processing tender %s", publication_id)
-            continue
+            logger.exception("Failed to persist tender %s", publication_id)
 
-    relevant_number_tenders = len(relevant_tenders)
+        results_with_summaries.append(
+            {
+                "id": publication_id,
+                "pdf_link": pdf_link,
+                "lot_title": lot_title,
+                "relevant": is_relevant,
+                "reason": reason,
+            }
+        )
 
-    run.total_tenders = total_number_tenders
-    run.relevant_tenders = relevant_number_tenders
-
+    run.relevant_tenders = sum(1 for r in results_with_summaries if r.get("relevant") is True)
     db.commit()
-
+    
     return {
-        "publication_date": publication_date,
-        "total_number_tenders": total_number_tenders,
-        "relevant_number_tenders": relevant_number_tenders,
-        "tenders": relevant_tenders,
+        "publication_date": input_date,
+        "total": total_number_tenders,
+        "relevant_count": run.relevant_tenders,
+        "tenders": results_with_summaries,
     }
