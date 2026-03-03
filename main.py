@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from google import genai
 from google.genai import errors as genai_errors
 from fastapi import Depends, FastAPI, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import logging
 from fastapi.responses import JSONResponse
 from db import Base, engine, get_db
@@ -22,21 +22,53 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# change to add query as FT~{text such as SAP} for filtering where word is present
-# add field as "publication-lot"   # get description at 5. Lot 5.1 -> only feed this to agent
-def search_all_tenders(publication_date: str, keyword: str):
-    tenders = []
-    url = "https://api.ted.europa.eu/v3/notices/search"
-    body = {
-        "query": f"submission-language IN (ENG DEU) AND buyer-country IN (AUT DEU CHE) AND publication-date={publication_date} AND FT~'{keyword}'",
-        "fields": [  
+DEFAULT_TED_FIELDS = [
             "publication-number",   # Notice ID ex. 144585-2026
             "links",                # pdf, xml, html links
             "BT-137-Lot",           # Lot identifier ex. LOT-0001
             "BT-21-Lot",            # Lot title
             "BT-24-Lot",            # Lot description
             "BT-22-Lot"             # Lot Procedure Internal identifier
-        ],
+]
+
+
+class TenderSearchRequest(BaseModel):
+    """User inputs for tender search. All filters are optional with defaults."""
+
+    input_date: str | None = Field(
+        default=None,
+        description="Publication date YYYYMMDD. Defaults to today.",
+        examples=["20260302"],
+    )
+    keyword: str = Field(
+        ...,
+        description="Full-text search term (e.g. SAP).",
+        min_length=1,
+        examples=["SAP"],
+    )
+
+
+def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
+    """Build TED API query string from validated request. Uses allowlisted clauses only."""
+    publication_date = filters.input_date or default_date
+    keyword = filters.keyword.strip()
+    clauses = [
+        "submission-language IN (ENG DEU)",
+        "buyer-country IN (AUT DEU CHE)",
+        f"publication-date={publication_date}",
+        f"FT~'{keyword}'",
+    ]
+    return " AND ".join(clauses)
+
+
+# change to add query as FT~{text such as SAP} for filtering where word is present
+# add field as "publication-lot"   # get description at 5. Lot 5.1 -> only feed this to agent
+def search_all_tenders(filters: TenderSearchRequest, default_date: str):
+    tenders = []
+    url = "https://api.ted.europa.eu/v3/notices/search"
+    body = {
+        "query": build_ted_query(filters, default_date),
+        "fields": DEFAULT_TED_FIELDS,
         "limit": 10,
         "page": 1,
         "scope": "ACTIVE",
@@ -93,17 +125,36 @@ def read_root():
     return {"message" : "Server is healthy"}
 
 @app.get("/run-filtered-search")
-def run_filtered_search(input_date: str, keyword: str, db: Session = Depends(get_db)):
+def run_filtered_search_get(
+    input_date: str | None = None,
+    keyword: str = Query(..., min_length=1),
+    db: Session = Depends(get_db),
+):
+    """GET variant: pass input_date and keyword as query params."""
     today = date.today()
-    if not input_date:
-        input_date = f"{today.year}{today.month:02d}{today.day:02d}"
-
-    tenders = search_all_tenders(input_date, keyword)
-    total_number_tenders = len(tenders)
-
+    default_date = f"{today.year}{today.month:02d}{today.day:02d}"
+    filters = TenderSearchRequest(input_date=input_date or None, keyword=keyword)
+    tenders = search_all_tenders(filters, default_date)
+    publication_date = filters.input_date or default_date
     return {
-        "publication_date": input_date,
-        "total": total_number_tenders,
-        "relevant_count": total_number_tenders,
+        "publication_date": publication_date,
+        "total_count": len(tenders),
+        "tenders": tenders,
+    }
+
+
+@app.post("/run-filtered-search")
+def run_filtered_search_post(
+    body: TenderSearchRequest,
+    db: Session = Depends(get_db),
+):
+    """POST variant: pass input_date and keyword in JSON body. Preferred for many filters."""
+    today = date.today()
+    default_date = f"{today.year}{today.month:02d}{today.day:02d}"
+    tenders = search_all_tenders(body, default_date)
+    publication_date = body.input_date or default_date
+    return {
+        "publication_date": publication_date,
+        "total_count": len(tenders),
         "tenders": tenders,
     }
