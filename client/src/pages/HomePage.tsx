@@ -17,7 +17,6 @@ import {
   type TenderDisplay,
 } from '#/types/tender'
 import type { DateFilterState, FilterOptions, TenderSearchParams } from '#/types/search'
-import { createFileRoute } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -30,14 +29,6 @@ function defaultDateFilter(): DateFilterState {
   }
 }
 
-/** Format deadline string from API (e.g. ISO) for display. */
-function formatDeadline(value: string): string {
-  if (!value?.trim()) return value
-  const d = new Date(value.trim())
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
 function getDaysLeftText(deadline: string): string {
   const d = new Date(deadline)
   const now = new Date()
@@ -48,9 +39,7 @@ function getDaysLeftText(deadline: string): string {
   return 'Abgelaufen'
 }
 
-export const Route = createFileRoute('/')({ component: App })
-
-function App() {
+export default function HomePage() {
   const [keyword, setKeyword] = useState('')
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null)
   const [dateFilter, setDateFilter] = useState<DateFilterState>(defaultDateFilter)

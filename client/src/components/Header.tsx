@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, NavLink } from 'react-router-dom'
 import ThemeToggle from './ThemeToggle'
 
 export default function Header() {
@@ -15,20 +15,18 @@ export default function Header() {
         </h2>
 
         <div className="flex flex-1 justify-center gap-x-6 gap-y-1 sm:gap-x-8">
-          <Link
+          <NavLink
             to="/"
-            className="nav-link"
-            activeProps={{ className: 'nav-link is-active' }}
+            className={({ isActive }: { isActive: boolean }) => `nav-link ${isActive ? 'is-active' : ''}`}
           >
             Home
-          </Link>
-          <Link
+          </NavLink>
+          <NavLink
             to="/about"
-            className="nav-link"
-            activeProps={{ className: 'nav-link is-active' }}
+            className={({ isActive }: { isActive: boolean }) => `nav-link ${isActive ? 'is-active' : ''}`}
           >
             About
-          </Link>
+          </NavLink>
         </div>
 
         <div className="flex flex-shrink-0">
