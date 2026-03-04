@@ -1,9 +1,9 @@
-/** Single source of truth for tender search filter types. */
-export const TENDER_FILTER_TYPES = [
-  { id: 'date', label: 'Date' },
-  { id: 'country', label: 'Country' },
-  { id: 'language', label: 'Language' },
+/** Filter kinds shown in the UI; options come from backend GET /filter-options. */
+export const TENDER_FILTER_KINDS = [
+  { id: 'date', label: 'Datum' },
+  { id: 'country', label: 'Land' },
+  { id: 'language', label: 'Sprache' },
+  { id: 'noticeType', label: 'Bekanntmachungstyp' },
 ] as const
 
-export type TenderFilterConfig = (typeof TENDER_FILTER_TYPES)[number]
-export type TenderFilterId = TenderFilterConfig['id']
+export type TenderFilterId = (typeof TENDER_FILTER_KINDS)[number]['id']

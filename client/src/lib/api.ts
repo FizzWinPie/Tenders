@@ -1,4 +1,4 @@
-import type { TenderSearchParams, TenderSearchResponse } from '#/types/search'
+import type { FilterOptions, TenderSearchParams, TenderSearchResponse } from '#/types/search'
 
 /**
  * Base URL for the backend API. In dev, use Vite proxy so same-origin requests
@@ -9,6 +9,13 @@ function getApiBaseUrl(): string {
     return '/api'
   }
   return import.meta.env?.VITE_API_URL ?? '/api'
+}
+
+export async function getFilterOptions(): Promise<FilterOptions> {
+  const base = getApiBaseUrl()
+  const res = await fetch(`${base}/filter-options`)
+  if (!res.ok) throw new Error(`Failed to load filter options: ${res.status}`)
+  return res.json() as Promise<FilterOptions>
 }
 
 export async function runFilteredSearch(

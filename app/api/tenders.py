@@ -3,11 +3,26 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.config import (
+    ALLOWED_BUYER_COUNTRIES,
+    ALLOWED_NOTICE_TYPES,
+    ALLOWED_SUBMISSION_LANGUAGES,
+)
 from app.db import get_db
 from app.schemas import TenderSearchRequest
 from app.services.tenders import search_all_tenders
 
 router = APIRouter(tags=["tenders"])
+
+
+@router.get("/filter-options")
+def get_filter_options():
+    """Return allowlisted filter options for the UI (languages, countries, notice types)."""
+    return {
+        "submission_languages": sorted(ALLOWED_SUBMISSION_LANGUAGES),
+        "buyer_countries": sorted(ALLOWED_BUYER_COUNTRIES),
+        "notice_types": sorted(ALLOWED_NOTICE_TYPES),
+    }
 
 
 @router.post("/run-filtered-search")

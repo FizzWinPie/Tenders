@@ -1,3 +1,18 @@
+/** Response from GET /filter-options. */
+export type FilterOptions = {
+  submission_languages: string[]
+  buyer_countries: string[]
+  notice_types: string[]
+}
+
+/** Date filter state (for UI). YYYYMMDD strings. */
+export type DateFilterState = {
+  date_mode: 'exact' | 'range'
+  input_date: string
+  date_from: string
+  date_to: string
+}
+
 /** Request body for POST /run-filtered-search. Matches backend TenderSearchRequest. */
 export type TenderSearchParams = {
   date_mode?: 'exact' | 'range'

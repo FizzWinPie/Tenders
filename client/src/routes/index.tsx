@@ -1,89 +1,248 @@
 import { Filter } from '#/components/Filter'
-import { TENDER_FILTER_TYPES } from '#/constants/tender-filters'
+import { TENDER_FILTER_KINDS } from '#/constants/tender-filters'
 import { InputButtonGroup } from '#/components/SearchBar'
-import { runFilteredSearch } from '#/lib/api'
+import { getFilterOptions, runFilteredSearch } from '#/lib/api'
 import {
   getTenderDescription,
   getTenderTitle,
   type TenderDisplay,
 } from '#/types/tender'
-import type { TenderSearchParams } from '#/types/search'
+import type { DateFilterState, FilterOptions, TenderSearchParams } from '#/types/search'
 import { createFileRoute } from '@tanstack/react-router'
 import { X } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
+
+function defaultDateFilter(): DateFilterState {
+  return {
+    date_mode: 'exact',
+    input_date: '',
+    date_from: '',
+    date_to: '',
+  }
+}
 
 export const Route = createFileRoute('/')({ component: App })
 
 function App() {
   const [keyword, setKeyword] = useState('')
+  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null)
+  const [dateFilter, setDateFilter] = useState<DateFilterState>(defaultDateFilter)
+  const [buyerCountries, setBuyerCountries] = useState<string[]>(['AUT', 'DEU', 'CHE'])
+  const [submissionLanguages, setSubmissionLanguages] = useState<string[]>(['ENG', 'DEU'])
+  const [noticeTypes, setNoticeTypes] = useState<string[]>([])
   const [tenders, setTenders] = useState<TenderDisplay[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [publicationDate, setPublicationDate] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const doSearch = useCallback(async (params: TenderSearchParams = {}) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const body: TenderSearchParams = {
-        date_mode: 'exact',
-        keyword: params.keyword !== undefined ? params.keyword : (keyword.trim() || undefined),
-        ...params,
+  const buildParams = useCallback(
+    (overrides: Partial<TenderSearchParams> = {}): TenderSearchParams => {
+      const mode = overrides.date_mode ?? dateFilter.date_mode
+      const p: TenderSearchParams = {
+        date_mode: mode,
+        keyword: overrides.keyword !== undefined ? overrides.keyword : (keyword.trim() || undefined),
       }
-      const res = await runFilteredSearch(body)
-      setTenders(res.tenders)
-      setTotalCount(res.total_count)
-      setPublicationDate(res.publication_date)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Search failed')
-      setTenders([])
-      setTotalCount(0)
-    } finally {
-      setLoading(false)
-    }
-  }, [keyword])
+      if (mode === 'range' && overrides.date_from === undefined && overrides.date_to === undefined && dateFilter.date_from && dateFilter.date_to) {
+        p.date_from = dateFilter.date_from
+        p.date_to = dateFilter.date_to
+      } else if (mode === 'exact' && overrides.input_date === undefined && dateFilter.input_date) {
+        p.input_date = dateFilter.input_date
+      }
+      const bc = overrides.buyer_countries !== undefined ? overrides.buyer_countries : buyerCountries
+      if (bc && bc.length > 0) p.buyer_countries = bc
+      const sl = overrides.submission_languages !== undefined ? overrides.submission_languages : submissionLanguages
+      if (sl && sl.length > 0) p.submission_languages = sl
+      const nt = overrides.notice_types !== undefined ? overrides.notice_types : noticeTypes
+      if (nt && nt.length > 0) p.notice_types = nt
+      return p
+    },
+    [dateFilter, keyword, buyerCountries, submissionLanguages, noticeTypes]
+  )
+
+  const doSearch = useCallback(
+    async (params?: TenderSearchParams) => {
+      setLoading(true)
+      setError(null)
+      try {
+        const body = params ?? buildParams()
+        const res = await runFilteredSearch(body)
+        setTenders(res.tenders)
+        setTotalCount(res.total_count)
+        setPublicationDate(res.publication_date)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Search failed')
+        setTenders([])
+        setTotalCount(0)
+      } finally {
+        setLoading(false)
+      }
+    },
+    [buildParams]
+  )
+
+  useEffect(() => {
+    getFilterOptions()
+      .then(setFilterOptions)
+      .catch(() => setFilterOptions({ submission_languages: [], buyer_countries: [], notice_types: [] }))
+  }, [])
 
   useEffect(() => {
     setLoading(true)
-    runFilteredSearch({ date_mode: 'exact' })
+    runFilteredSearch({
+      date_mode: 'exact',
+      buyer_countries: ['AUT', 'DEU', 'CHE'],
+      submission_languages: ['ENG', 'DEU'],
+    })
       .then((res) => {
         setTenders(res.tenders)
         setTotalCount(res.total_count)
         setPublicationDate(res.publication_date)
       })
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : 'Search failed')
-      })
+      .catch((e) => setError(e instanceof Error ? e.message : 'Search failed'))
       .finally(() => setLoading(false))
   }, [])
 
   function handleSearch() {
-    doSearch({ keyword: keyword.trim() || undefined })
+    doSearch()
+  }
+
+  function handleFilterApply() {
+    doSearch()
+  }
+
+  const activeFilterChips: { id: string; label: string; onRemove: () => void }[] = []
+  if (keyword.trim()) {
+    activeFilterChips.push({
+      id: 'keyword',
+      label: `Stichwort: ${keyword.trim()}`,
+      onRemove: () => {
+        setKeyword('')
+        doSearch(buildParams({ keyword: undefined }))
+      },
+    })
+  }
+  const hasDateFilter =
+    (dateFilter.date_mode === 'exact' && dateFilter.input_date) ||
+    (dateFilter.date_mode === 'range' && dateFilter.date_from && dateFilter.date_to)
+  if (hasDateFilter) {
+    const dateLabel =
+      dateFilter.date_mode === 'exact'
+        ? dateFilter.input_date
+        : `${dateFilter.date_from} – ${dateFilter.date_to}`
+    activeFilterChips.push({
+      id: 'date',
+      label: `Datum: ${dateLabel}`,
+      onRemove: () => {
+        setDateFilter(defaultDateFilter())
+        doSearch(buildParams({ date_mode: 'exact', input_date: undefined, date_from: undefined, date_to: undefined }))
+      },
+    })
+  }
+  if (buyerCountries.length > 0) {
+    activeFilterChips.push({
+      id: 'countries',
+      label: `Länder: ${buyerCountries.join(', ')}`,
+      onRemove: () => {
+        setBuyerCountries([])
+        doSearch(buildParams({ buyer_countries: [] }))
+      },
+    })
+  }
+  if (submissionLanguages.length > 0) {
+    activeFilterChips.push({
+      id: 'languages',
+      label: `Sprachen: ${submissionLanguages.join(', ')}`,
+      onRemove: () => {
+        setSubmissionLanguages([])
+        doSearch(buildParams({ submission_languages: [] }))
+      },
+    })
+  }
+  if (noticeTypes.length > 0) {
+    activeFilterChips.push({
+      id: 'noticeTypes',
+      label: `Typ: ${noticeTypes.join(', ')}`,
+      onRemove: () => {
+        setNoticeTypes([])
+        doSearch(buildParams({ notice_types: [] }))
+      },
+    })
   }
 
   return (
     <main className="page-wrap">
-      <section className='flex items-end gap-2 rise-in overflow-hidden rounded-[2rem] px-6 pt-10 pb-4 sm:px-10 sm:pt-14 sm:pb-6'>
-        <InputButtonGroup
-          value={keyword}
-          onChange={setKeyword}
-          onSearch={handleSearch}
-        />
-        {TENDER_FILTER_TYPES.map(({ id, label }) => (
-          <Filter key={id} type={id} label={label} />
-        ))}
+      <section className='flex flex-wrap items-end gap-2 rise-in overflow-hidden rounded-[2rem] px-6 pt-10 pb-4 sm:px-10 sm:pt-14 sm:pb-6'>
+        <div className='flex flex-row w-full items-end'>
+          <InputButtonGroup
+            value={keyword}
+            onChange={setKeyword}
+            onSearch={handleSearch}
+          />
+          {filterOptions && (
+            <>
+              <Filter
+                type="date"
+                label={TENDER_FILTER_KINDS[0].label}
+                value={dateFilter}
+                onChange={setDateFilter}
+                onApply={handleFilterApply}
+              />
+              <Filter
+                type="country"
+                label={TENDER_FILTER_KINDS[1].label}
+                options={filterOptions.buyer_countries}
+                value={buyerCountries}
+                onChange={setBuyerCountries}
+                onApply={handleFilterApply}
+              />
+              <Filter
+                type="language"
+                label={TENDER_FILTER_KINDS[2].label}
+                options={filterOptions.submission_languages}
+                value={submissionLanguages}
+                onChange={setSubmissionLanguages}
+                onApply={handleFilterApply}
+              />
+              <Filter
+                type="noticeType"
+                label={TENDER_FILTER_KINDS[3].label}
+                options={filterOptions.notice_types}
+                value={noticeTypes}
+                onChange={setNoticeTypes}
+                onApply={handleFilterApply}
+              />
+            </>
+          )}
+        </div>
       </section>
 
-      <section className='flex w-full items-center justify-between gap-2 px-6 rise-in sm:px-10'>
-        <div className='flex flex-row items-center gap-1 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)] transition hover:-translate-y-0.5'>
-          <span className='text-sm text-muted-foreground'>Anzuzeigende Treffer: Gelesene</span>
-          <X size={12} className="shrink-0" aria-hidden />
+      <section className='flex w-full flex-wrap items-center justify-between gap-2 px-6 rise-in sm:px-10'>
+        <div className='flex flex-wrap items-center gap-2'>
+          {activeFilterChips.length > 0 ? (
+            activeFilterChips.map((chip) => (
+              <span
+                key={chip.id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-medium text-[var(--sea-ink)] shadow-sm"
+              >
+                {chip.label}
+                <button
+                  type="button"
+                  onClick={chip.onRemove}
+                  aria-label={`${chip.label} entfernen`}
+                  className="rounded-full p-0.5 transition hover:bg-black/10 focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <X size={14} aria-hidden />
+                </button>
+              </span>
+            ))
+          ) : (
+            <span className="text-sm text-muted-foreground">Keine Filter aktiv</span>
+          )}
         </div>
         <h3 className='text-base font-semibold'>
           {loading ? '…' : `${totalCount} Aufträge gefunden`}
         </h3>
-        <Filter type='date' label='Nach Relevanz' />
       </section>
 
       {error && (
@@ -102,18 +261,28 @@ function App() {
                 key={tender.id}
                 className="island-shell rounded-xl border border-border bg-card p-4 shadow-sm"
               >
-                <div className="mb-2 flex flex-wrap items-center gap-2">
+                <div className="mb-2 flex flex-wrap justify-between items-center gap-2">
                   <span className="text-xs font-medium text-muted-foreground">
-                    {tender.lot_identifier.join(', ')} · {tender.lot_procedure_id.join(', ')}
+                    ID: {tender.lot_procedure_id.join(', ')} · {tender.lot_identifier.join(', ')}
                   </span>
-                  <a
-                    href={tender.pdf_link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs font-medium text-primary underline"
-                  >
-                    PDF
-                  </a>
+                  <div className='flex gap-2'>
+                    <a
+                      href={tender.pdf_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-primary underline"
+                    >
+                      PDF
+                    </a>
+                    <a
+                      href={tender.pdf_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-primary underline"
+                    >
+                      Website
+                    </a>
+                  </div>
                 </div>
                 <h2 className="mb-2 text-base font-semibold leading-tight">
                   {getTenderTitle(tender)}
