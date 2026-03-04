@@ -30,6 +30,24 @@ function defaultDateFilter(): DateFilterState {
   }
 }
 
+/** Format deadline string from API (e.g. ISO) for display. */
+function formatDeadline(value: string): string {
+  if (!value?.trim()) return value
+  const d = new Date(value.trim())
+  if (Number.isNaN(d.getTime())) return value
+  return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function getDaysLeftText(deadline: string): string {
+  const d = new Date(deadline)
+  const now = new Date()
+  const msPerDay = 24 * 60 * 60 * 1000
+  const daysLeft = Math.ceil((d.getTime() - now.getTime()) / msPerDay)
+  if (daysLeft > 0) return `Noch ${daysLeft} ${daysLeft === 1 ? 'Tag' : 'Tage'}`
+  if (daysLeft === 0) return 'Heute'
+  return 'Abgelaufen'
+}
+
 export const Route = createFileRoute('/')({ component: App })
 
 function App() {
@@ -123,7 +141,6 @@ function App() {
       .finally(() => setLoading(false))
   }, [])
 
-  // Scroll results into view when page changes (e.g. after clicking pagination)
   useEffect(() => {
     if (page > 1) resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [page])
@@ -198,7 +215,7 @@ function App() {
   return (
     <main className="page-wrap">
       <section className='flex flex-wrap items-end gap-2 rise-in overflow-hidden rounded-[2rem] px-6 pt-10 pb-4 sm:px-10 sm:pt-14 sm:pb-6'>
-        <div className='flex flex-row w-full items-end'>
+        <div className='flex flex-row w-full items-end gap-1'>
           <InputButtonGroup
             value={keyword}
             onChange={setKeyword}
@@ -313,9 +330,19 @@ function App() {
                   className="island-shell rounded-xl border border-border bg-card p-4 shadow-sm"
                 >
                   <div className="mb-2 flex flex-wrap justify-between items-center gap-2">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      ID: {(tender.lot_procedure_id ?? []).join(', ')} · {(tender.lot_identifier ?? []).join(', ')}
-                    </span>
+                    <div className='flex gap-2'>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        ID: {(tender.id ?? "N/A")}
+                      </span>
+                      {tender.deadline && (
+                        <>
+                          <span className="text-xs text-muted-foreground" aria-hidden>·</span>
+                          <p className="text-xs font-medium text-green-700/70 dark:text-green-400">
+                          {getDaysLeftText(tender.deadline)}
+                          </p>
+                        </>
+                      )}
+                    </div>
                     <div className='flex gap-2'>
                       <a
                         href={tender.pdf_link}
@@ -326,7 +353,7 @@ function App() {
                         PDF
                       </a>
                       <a
-                        href={tender.pdf_link}
+                        href={tender.html_link}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="text-xs font-medium text-primary underline"
@@ -347,70 +374,70 @@ function App() {
             {totalCount > 0 && totalCount > limit && (() => {
               const totalPages = Math.max(1, Math.ceil(totalCount / limit))
               return (
-              <Pagination className="mt-6">
-                <PaginationContent>
-                  <PaginationItem>
-                    <PaginationPrevious
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        if (page > 1 && !loading) doSearch(buildParams({ page: page - 1 }))
-                      }}
-                      className={page <= 1 || loading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                      aria-disabled={page <= 1 || loading}
-                    />
-                  </PaginationItem>
-                  {(() => {
-                    const show: number[] = [1]
-                    if (totalPages > 1) {
-                      for (const p of [page - 1, page, page + 1]) {
-                        if (p >= 2 && p <= totalPages - 1 && !show.includes(p)) show.push(p)
+                <Pagination className="mt-6">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          if (page > 1 && !loading) doSearch(buildParams({ page: page - 1 }))
+                        }}
+                        className={page <= 1 || loading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        aria-disabled={page <= 1 || loading}
+                      />
+                    </PaginationItem>
+                    {(() => {
+                      const show: number[] = [1]
+                      if (totalPages > 1) {
+                        for (const p of [page - 1, page, page + 1]) {
+                          if (p >= 2 && p <= totalPages - 1 && !show.includes(p)) show.push(p)
+                        }
+                        show.push(totalPages)
+                        show.sort((a, b) => a - b)
                       }
-                      show.push(totalPages)
-                      show.sort((a, b) => a - b)
-                    }
-                    const nodes: React.ReactNode[] = []
-                    let prev = 0
-                    for (const p of show) {
-                      if (prev !== 0 && p > prev + 1) {
+                      const nodes: React.ReactNode[] = []
+                      let prev = 0
+                      for (const p of show) {
+                        if (prev !== 0 && p > prev + 1) {
+                          nodes.push(
+                            <PaginationItem key={`e-${prev}`}>
+                              <PaginationEllipsis />
+                            </PaginationItem>
+                          )
+                        }
                         nodes.push(
-                          <PaginationItem key={`e-${prev}`}>
-                            <PaginationEllipsis />
+                          <PaginationItem key={p}>
+                            <PaginationLink
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                if (!loading) doSearch(buildParams({ page: p }))
+                              }}
+                              isActive={page === p}
+                              className="cursor-pointer"
+                            >
+                              {p}
+                            </PaginationLink>
                           </PaginationItem>
                         )
+                        prev = p
                       }
-                      nodes.push(
-                        <PaginationItem key={p}>
-                          <PaginationLink
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault()
-                              if (!loading) doSearch(buildParams({ page: p }))
-                            }}
-                            isActive={page === p}
-                            className="cursor-pointer"
-                          >
-                            {p}
-                          </PaginationLink>
-                        </PaginationItem>
-                      )
-                      prev = p
-                    }
-                    return nodes
-                  })()}
-                  <PaginationItem>
-                    <PaginationNext
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        if (page < totalPages && !loading) doSearch(buildParams({ page: page + 1 }))
-                      }}
-                      className={page >= totalPages || loading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                      aria-disabled={page >= totalPages || loading}
-                    />
-                  </PaginationItem>
-                </PaginationContent>
-              </Pagination>
+                      return nodes
+                    })()}
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          if (page < totalPages && !loading) doSearch(buildParams({ page: page + 1 }))
+                        }}
+                        className={page >= totalPages || loading ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                        aria-disabled={page >= totalPages || loading}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               )
             })()}
           </>

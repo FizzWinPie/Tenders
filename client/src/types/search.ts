@@ -36,6 +36,8 @@ export type TenderSearchResponse = {
   tenders: Array<{
     id: string
     pdf_link: string
+    html_link: string
+    deadline?: string
     lot_identifier: string[]
     lot_title: Record<string, string[]>
     lot_description: Record<string, string[]>

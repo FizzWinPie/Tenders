@@ -16,6 +16,7 @@ DEFAULT_TED_FIELDS = [
     "BT-21-Lot",
     "BT-24-Lot",
     "BT-22-Lot",
+    "deadline-receipt-request", # Key deadline (tender submission)
 ]
 
 ALLOWED_SUBMISSION_LANGUAGES = {"ENG", "DEU", "FRA", "ITA", "SPA", "NLD", "POL", "ELL"}

@@ -2,6 +2,8 @@
 export type TenderDisplay = {
   id: string
   pdf_link: string
+  html_link: string
+  deadline?: string | null
   lot_identifier?: string[] | null
   lot_title?: Record<string, string[]> | null
   lot_description?: Record<string, string[]> | null

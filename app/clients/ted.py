@@ -51,19 +51,32 @@ def search_tenders(
         tenders = []
         for notice in data.get("notices", []):
             pdf = (notice.get("links") or {}).get("pdf") or {}
+            html = (notice.get("links") or {}).get("html") or {}
             pdf_url = pdf.get("DEU") or pdf.get("ENG")
+            html_url = html.get("DEU") or html.get("ENG")
             publication_id = notice.get("publication-number")
-            if pdf_url and publication_id:
-                tenders.append(
-                    {
-                        "id": publication_id,
-                        "pdf_link": pdf_url,
-                        "lot_identifier": notice.get("BT-137-Lot") or [],
-                        "lot_title": notice.get("BT-21-Lot") or {},
-                        "lot_description": notice.get("BT-24-Lot") or {},
-                        "lot_procedure_id": notice.get("BT-22-Lot") or [],
-                    }
-                )
+            deadline_raw = notice.get("deadline-receipt-request")
+            if isinstance(deadline_raw, str):
+                deadline = deadline_raw
+            elif isinstance(deadline_raw, list) and deadline_raw:
+                deadline = str(deadline_raw[0]) if deadline_raw[0] is not None else ""
+            elif isinstance(deadline_raw, dict) and deadline_raw:
+                first_val = next(iter(deadline_raw.values()), None)
+                deadline = str(first_val) if first_val is not None else ""
+            else:
+                deadline = ""
+            tenders.append(
+                {
+                    "id": publication_id or 0,
+                    "pdf_link": pdf_url or "",
+                    "html_link": html_url or "",
+                    "deadline": deadline,
+                    "lot_identifier": notice.get("BT-137-Lot") or [],
+                    "lot_title": notice.get("BT-21-Lot") or {},
+                    "lot_description": notice.get("BT-24-Lot") or {},
+                    "lot_procedure_id": notice.get("BT-22-Lot") or [],
+                }
+            )
         total = data.get("total") or data.get("totalCount") or data.get("numberOfResults")
         if total is not None:
             try:

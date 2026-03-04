@@ -11,7 +11,7 @@ export type SearchBarProps = {
   placeholder?: string
 }
 
-export function InputButtonGroup({ value, onChange, onSearch, placeholder = 'Suchen...' }: SearchBarProps) {
+export function InputButtonGroup({ value, onChange, onSearch, placeholder = 'Suchen mit Keyword (eg. SAP)' }: SearchBarProps) {
   return (
     <Field>
       <FieldLabel htmlFor="input-button-group" className="display-title mb-5 max-w-3xl text-4xl leading-[1.02] font-bold tracking-tight text-[var(--sea-ink)] sm:text-6xl">Suchergebnisse</FieldLabel>
