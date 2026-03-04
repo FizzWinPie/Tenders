@@ -3,3 +3,4 @@ __pycache__
 TODO.txt
 .DS_Store
 .env
+.pytest_cache

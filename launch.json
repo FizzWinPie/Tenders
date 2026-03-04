@@ -1,10 +1,10 @@
 {
-  "name": "Debug FastAPI (uvicorn)",
+  "name": "Custom Script: Debug FastAPI (uvicorn)",
   "type": "python",
   "request": "launch",
   "module": "uvicorn",
   "args": [
-    "main:app",
+    "app.main:app",
     "--reload"
   ],
   "cwd": "${workspaceFolder}",

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from db import Base
+from app.db.session import Base
 
 
 class Run(Base):
@@ -45,4 +45,3 @@ class TenderAnalysis(Base):
 
     run: Mapped[Run] = relationship("Run", back_populates="analyses")
     tender: Mapped[Tender] = relationship("Tender", back_populates="analyses")
-

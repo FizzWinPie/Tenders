@@ -1,17 +1,15 @@
 import json
 import logging
 import os
-from datetime import date
 
 from google import genai
 from google.genai import errors as genai_errors
 
+from app.core.config import GEMINI_AGENT_MODEL, GEMINI_API_KEY
+
 logger = logging.getLogger(__name__)
 
-
-def agent_search(input_data):
-    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    agent_context = """
+AGENT_CONTEXT = """
         ### ROLE
         You are a Precision Document Analyst. Your goal is to extract and analyze procurement data with 100% factual accuracy.
 
@@ -36,6 +34,15 @@ def agent_search(input_data):
         Do not include any additional text before or after the JSON.
         """
 
+
+def agent_search(input_data: str | list) -> dict | None:
+    """Call Gemini with tender context; return parsed {"relevant": bool, "reason": str} or None."""
+    api_key = GEMINI_API_KEY
+    if not api_key:
+        logger.warning("GEMINI_API_KEY not set")
+        return None
+
+    client = genai.Client(api_key=api_key)
     content = (
         input_data
         if isinstance(input_data, str)
@@ -44,19 +51,14 @@ def agent_search(input_data):
 
     try:
         res = client.models.generate_content(
-            model=os.getenv("GEMINI_AGENT_MODEL") or "gemini-2.5-flash-lite",
-            contents=f"{agent_context}. These are the tenders: {content}",
+            model=GEMINI_AGENT_MODEL,
+            contents=f"{AGENT_CONTEXT}. These are the tenders: {content}",
         )
     except genai_errors.ClientError as e:
-        logger.warning(
-            "Gemini client error (max quota limit reached) during agent_search: %s", e
-        )
+        logger.warning("Gemini client error during agent_search: %s", e)
         return None
     except genai_errors.ServerError as e:
-        logger.warning(
-            "Gemini service unavailable during agent_search: %s",
-            e,
-        )
+        logger.warning("Gemini service unavailable during agent_search: %s", e)
         return None
     except Exception:
         logger.exception("Unexpected error during agent_search")
@@ -70,21 +72,7 @@ def agent_search(input_data):
         return None
 
     if not isinstance(parsed, dict) or "relevant" not in parsed:
-        logger.warning(
-            "agent_search returned JSON without required keys: %s",
-            parsed,
-        )
+        logger.warning("agent_search returned JSON without required keys: %s", parsed)
         return None
 
-    results_path = "results.json"
-    if os.path.exists(results_path):
-        with open(results_path, "r", encoding="utf-8") as f:
-            results = json.load(f)
-    else:
-        results = []
-    results.append({"response": parsed, "timestamp": date.today().isoformat()})
-    with open(results_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-
     return parsed
-
