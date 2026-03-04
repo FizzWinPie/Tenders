@@ -49,7 +49,7 @@ export const Route = createFileRoute('/')({ component: App })
 
 function App() {
   return (
-    <main className="page-wrap px-4 pb-8 pt-14">
+    <main className="page-wrap">
       <section className='flex items-end gap-2 rise-in overflow-hidden rounded-[2rem] px-6 pt-10 pb-4 sm:px-10 sm:pt-14 sm:pb-6'>
         <InputButtonGroup />
         {TENDER_FILTER_TYPES.map(({ id, label }) => (
@@ -58,7 +58,7 @@ function App() {
       </section>
 
       <section className='flex w-full items-center justify-between gap-2 px-6 rise-in sm:px-10'>
-        <div className='flex flex-row items-center gap-1'>
+        <div className='flex flex-row items-center gap-1 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)] transition hover:-translate-y-0.5'>
           <span className='text-sm text-muted-foreground'>Anzuzeigende Treffer: Gelesene</span>
           <X size={12} className="shrink-0" aria-hidden />
         </div>
