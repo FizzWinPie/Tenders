@@ -30,7 +30,11 @@ def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
     return " AND ".join(clauses)
 
 
-def search_all_tenders(filters: TenderSearchRequest, default_date: str) -> list[dict]:
-    """Run filtered tender search via TED API; returns list of tender dicts."""
+def search_all_tenders(filters: TenderSearchRequest, default_date: str) -> tuple[list[dict], int]:
+    """Run filtered tender search via TED API. Returns (tender dicts, total count)."""
     query = build_ted_query(filters, default_date)
-    return search_tenders(query)
+    return search_tenders(
+        query,
+        limit=filters.limit,
+        page=filters.page,
+    )

@@ -23,12 +23,16 @@ export type TenderSearchParams = {
   submission_languages?: string[] | null
   buyer_countries?: string[] | null
   notice_types?: string[] | null
+  limit?: number
+  page?: number
 }
 
 /** Response from POST /run-filtered-search. */
 export type TenderSearchResponse = {
   publication_date: string
   total_count: number
+  page: number
+  limit: number
   tenders: Array<{
     id: string
     pdf_link: string

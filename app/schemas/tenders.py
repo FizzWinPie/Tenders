@@ -52,6 +52,17 @@ class TenderSearchRequest(BaseModel):
         description="Notice type(s) (BT-02). e.g. qu-sy, pmc, pin-tran, pin-cfc-social, pin-cfc-standard, pin-only, pin-rtl, subco, veat. Uses allowlist.",
         examples=[["pin-cfc-standard", "pin-only"]],
     )
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=250,
+        description="Number of results per page (TED API max 250).",
+    )
+    page: int = Field(
+        default=1,
+        ge=1,
+        description="Page number (1-based).",
+    )
 
     @model_validator(mode="after")
     def check_range_dates(self):

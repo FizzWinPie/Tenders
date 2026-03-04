@@ -16,12 +16,12 @@ def search_tenders(
     limit: int = 10,
     page: int = 1,
     scope: str = "ACTIVE",
-) -> list[dict[str, Any]]:
-    """Call TED notices search API and return list of tender dicts (id, pdf_link, lot_*)."""
+) -> tuple[list[dict[str, Any]], int]:
+    """Call TED notices search API. Returns (tender dicts, total count). Total from API when present else len(tenders)."""
     key = api_key or EU_TENDER_API_KEY
     if not key:
         logger.error("EU_TENDER_API_KEY not set")
-        return []
+        return [], 0
 
     url = TED_API_URL
     body = {
@@ -45,7 +45,7 @@ def search_tenders(
                 response.status_code,
                 response.text,
             )
-            return []
+            return [], 0
 
         data = response.json()
         tenders = []
@@ -58,14 +58,22 @@ def search_tenders(
                     {
                         "id": publication_id,
                         "pdf_link": pdf_url,
-                        "lot_identifier": notice.get("BT-137-Lot"),
-                        "lot_title": notice.get("BT-21-Lot"),
-                        "lot_description": notice.get("BT-24-Lot"),
-                        "lot_procedure_id": notice.get("BT-22-Lot"),
+                        "lot_identifier": notice.get("BT-137-Lot") or [],
+                        "lot_title": notice.get("BT-21-Lot") or {},
+                        "lot_description": notice.get("BT-24-Lot") or {},
+                        "lot_procedure_id": notice.get("BT-22-Lot") or [],
                     }
                 )
-        return tenders
+        total = data.get("total") or data.get("totalCount") or data.get("numberOfResults")
+        if total is not None:
+            try:
+                total = int(total)
+            except (TypeError, ValueError):
+                total = len(tenders)
+        else:
+            total = len(tenders)
+        return tenders, total
 
     except requests.exceptions.RequestException as e:
         logger.error("Tender API request failed: %s", e)
-        return []
+        return [], 0
