@@ -1,6 +1,6 @@
 import json
 import logging
-import os
+from typing import Any
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -9,7 +9,7 @@ from app.core.config import GEMINI_AGENT_MODEL, GEMINI_API_KEY
 
 logger = logging.getLogger(__name__)
 
-AGENT_CONTEXT = """
+AGENT_GENERAL_GUIDELINES = """
         ### ROLE
         You are a Precision Document Analyst. Your goal is to extract and analyze procurement data with 100% factual accuracy.
 
@@ -34,8 +34,124 @@ AGENT_CONTEXT = """
         Do not include any additional text before or after the JSON.
         """
 
+SELECTION_GENERAL_GUIDELINES = """
+        ### ROLE
+        You are a Procurement Tender Selector. Your goal is to pick the single best tender for a given company from a small shortlist.
 
-def agent_search(input_data: str | list) -> dict | None:
+        ### INPUT
+        You receive:
+        - [Tender Candidates]: a JSON array of up to 5 tender objects.
+        - [Already Selected IDs]: a JSON array of tender IDs that have already been chosen as winners in previous rounds.
+        - Optional company information and user-specific guidelines.
+
+        ### MANDATORY GROUNDING RULES
+        1. ONLY use the information provided in the inputs (candidates, selected IDs, company info, guidelines).
+        2. DO NOT use external knowledge, internet data, or your own training data to fill in gaps.
+        3. If the inputs do NOT contain enough information to make a clear choice, pick the tender that appears safest and most generic, and say that in the reason.
+        4. When [Already Selected IDs] is non-empty, you MUST NOT choose any tender whose ID is listed there.
+
+        ### SELECTION RULES
+        - Choose exactly ONE tender as the winner.
+        - Prefer tenders that clearly match the company's domain, capabilities, or interests from the description/title.
+        - If multiple tenders are equally good, break ties arbitrarily but still pick exactly one.
+
+        ### OUTPUT FORMAT
+        Respond ONLY with a single valid JSON object in this exact shape:
+        {
+            "winner_id": "id value of the chosen tender (as it appears in the input JSON)",
+            "reason": "one concise sentence explaining why this tender is the best choice"
+        }
+        Do not include any additional text before or after the JSON.
+        """
+
+
+def _extract_json_text(raw: str) -> str:
+    """Strip markdown code fences (e.g. ```json ... ```) if present."""
+    s = raw.strip()
+    if s.startswith("```"):
+        lines = s.split("\n")
+        if lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        s = "\n".join(lines)
+    return s.strip()
+
+
+def parse_agent_response(res):
+    raw_text = getattr(res, "text", None) or ""
+    text = _extract_json_text(raw_text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse agent_search response as JSON: %s", raw_text)
+        return None
+
+    if not isinstance(parsed, dict) or "relevant" not in parsed:
+        logger.warning("agent_search returned JSON without required keys: %s", parsed)
+        return None
+
+    return parsed
+
+
+def parse_selection_response(res: Any) -> dict[str, Any] | None:
+    raw_text = getattr(res, "text", None) or ""
+    text = _extract_json_text(raw_text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse pick_tender_winner response as JSON: %s", raw_text)
+        return None
+
+    if not isinstance(parsed, dict):
+        logger.warning("pick_tender_winner returned non-dict JSON: %s", parsed)
+        return None
+
+    if "winner_id" not in parsed or "reason" not in parsed:
+        logger.warning("pick_tender_winner JSON missing required keys: %s", parsed)
+        return None
+
+    return parsed
+
+
+def build_agent_context(
+    input_data: str | list,
+    company_information_data: str | None = None,
+    user_specific_guidelines: str | None = None,
+) -> str:
+    contents = f"{AGENT_GENERAL_GUIDELINES}."
+    if company_information_data:
+        contents += f"\nThe Company has the following qualities: {company_information_data}"
+    if user_specific_guidelines:
+        contents += f"\nThe User has the following specific guidelines: {user_specific_guidelines}"
+    if input_data:
+        contents += f"\nThe following data is provided as JSON: {input_data}"
+    return contents
+
+
+def build_selection_context(
+    candidates: list[dict[str, Any]],
+    already_selected_ids: list[Any] | None = None,
+    company_information_data: str | None = None,
+    user_specific_guidelines: str | None = None,
+) -> str:
+    contents = f"{SELECTION_GENERAL_GUIDELINES}."
+    contents += f"\n[Tender Candidates]\n{json.dumps(candidates, ensure_ascii=False)}"
+    contents += (
+        f"\n[Already Selected IDs]\n{json.dumps(already_selected_ids or [], ensure_ascii=False)}"
+    )
+    if company_information_data:
+        contents += f"\nThe Company has the following qualities: {company_information_data}"
+    if user_specific_guidelines:
+        contents += f"\nThe User has the following specific guidelines: {user_specific_guidelines}"
+    return contents
+
+
+def agent_search(
+    input_data: str | list,
+    company_information_data: str | None = None,
+    user_specific_guidelines: str | None = None,
+) -> dict | None:
     """Call Gemini with tender context; return parsed {"relevant": bool, "reason": str} or None."""
     api_key = GEMINI_API_KEY
     if not api_key:
@@ -43,16 +159,11 @@ def agent_search(input_data: str | list) -> dict | None:
         return None
 
     client = genai.Client(api_key=api_key)
-    content = (
-        input_data
-        if isinstance(input_data, str)
-        else "\n\n---\n\n".join(str(t) for t in input_data)
-    )
-
+    context = build_agent_context(input_data, company_information_data, user_specific_guidelines)
     try:
         res = client.models.generate_content(
             model=GEMINI_AGENT_MODEL,
-            contents=f"{AGENT_CONTEXT}. These are the tenders: {content}",
+            contents=context,
         )
     except genai_errors.ClientError as e:
         logger.warning("Gemini client error during agent_search: %s", e)
@@ -64,15 +175,50 @@ def agent_search(input_data: str | list) -> dict | None:
         logger.exception("Unexpected error during agent_search")
         return None
 
-    raw_text = getattr(res, "text", None) or ""
+    return parse_agent_response(res)
+
+
+def pick_tender_winner(
+    candidates: list[dict[str, Any]],
+    already_selected_ids: list[Any] | None = None,
+    company_information_data: str | None = None,
+    user_specific_guidelines: str | None = None,
+) -> dict[str, Any] | None:
+    """
+    Call Gemini to pick a single winning tender from `candidates`.
+
+    Returns a dict like:
+        {"winner_id": <id>, "reason": "<why this tender was chosen>"}
+    or None on failure.
+    """
+    if not candidates:
+        return None
+
+    api_key = GEMINI_API_KEY
+    if not api_key:
+        logger.warning("GEMINI_API_KEY not set")
+        return None
+
+    client = genai.Client(api_key=api_key)
+    context = build_selection_context(
+        candidates,
+        already_selected_ids=already_selected_ids,
+        company_information_data=company_information_data,
+        user_specific_guidelines=user_specific_guidelines,
+    )
     try:
-        parsed = json.loads(raw_text)
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse agent_search response as JSON: %s", raw_text)
+        res = client.models.generate_content(
+            model=GEMINI_AGENT_MODEL,
+            contents=context,
+        )
+    except genai_errors.ClientError as e:
+        logger.warning("Gemini client error during pick_tender_winner: %s", e)
+        return None
+    except genai_errors.ServerError as e:
+        logger.warning("Gemini service unavailable during pick_tender_winner: %s", e)
+        return None
+    except Exception:
+        logger.exception("Unexpected error during pick_tender_winner")
         return None
 
-    if not isinstance(parsed, dict) or "relevant" not in parsed:
-        logger.warning("agent_search returned JSON without required keys: %s", parsed)
-        return None
-
-    return parsed
+    return parse_selection_response(res)

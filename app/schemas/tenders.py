@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -97,3 +97,54 @@ class TenderSearchRequest(BaseModel):
                     f"notice_types must be from {sorted(ALLOWED_NOTICE_TYPES)}, got {invalid}"
                 )
         return self
+
+
+class TenderPickRequest(BaseModel):
+    """Request body for LLM-based tender winner selection."""
+
+    tenders: list[dict[str, Any]] = Field(
+        ...,
+        description="Shortlisted tender objects (typically the 5 most relevant ones).",
+        examples=[
+            [
+                {
+                    "id": 123,
+                    "lot_title": {"ENG": "SAP support services"},
+                    "lot_description": {"ENG": "Long-term SAP application management"},
+                    "deadline": "20260331",
+                }
+            ]
+        ],
+    )
+    runs: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="How many distinct winners to pick (LLM is called once per winner).",
+    )
+    company_information_data: str | None = Field(
+        default=None,
+        description="Optional free-text description of the company to guide selection.",
+    )
+    user_specific_guidelines: str | None = Field(
+        default=None,
+        description="Optional free-text user preferences or additional constraints.",
+    )
+
+
+class TenderWinner(BaseModel):
+    """Single LLM-selected tender winner with explanation."""
+
+    rank: int = Field(
+        ...,
+        description="1-based rank of this winner (1 = first pick).",
+        ge=1,
+    )
+    tender: dict[str, Any] = Field(
+        ...,
+        description="Original tender object as provided in the request.",
+    )
+    reason: str = Field(
+        ...,
+        description="Short explanation why this tender was selected.",
+    )

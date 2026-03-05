@@ -1,4 +1,10 @@
-import type { FilterOptions, TenderSearchParams, TenderSearchResponse } from '#/types/search'
+import type {
+  FilterOptions,
+  TenderPickParams,
+  TenderSearchParams,
+  TenderSearchResponse,
+  TenderWinner,
+} from '#/types/search'
 
 /**
  * Base URL for the backend API. In dev, use Vite proxy so same-origin requests
@@ -32,4 +38,20 @@ export async function runFilteredSearch(
     throw new Error(`Search failed: ${res.status} ${text}`)
   }
   return res.json() as Promise<TenderSearchResponse>
+}
+
+export async function pickWinners(
+  params: TenderPickParams
+): Promise<TenderWinner[]> {
+  const base = getApiBaseUrl()
+  const res = await fetch(`${base}/pick-winners`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Pick winners failed: ${res.status} ${text}`)
+  }
+  return res.json() as Promise<TenderWinner[]>
 }

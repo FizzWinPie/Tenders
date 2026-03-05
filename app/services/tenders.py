@@ -1,5 +1,8 @@
+from typing import Any
+
+from app.clients.gemini import pick_tender_winner
 from app.clients.ted import search_tenders
-from app.schemas.tenders import TenderSearchRequest
+from app.schemas.tenders import TenderPickRequest, TenderWinner, TenderSearchRequest
 
 from app.core.config import (
     DEFAULT_BUYER_COUNTRIES,
@@ -38,3 +41,50 @@ def search_all_tenders(filters: TenderSearchRequest, default_date: str) -> tuple
         limit=filters.limit,
         page=filters.page,
     )
+
+
+def pick_multiple_tender_winners(request: TenderPickRequest) -> list[TenderWinner]:
+    """
+    Use the LLM to pick up to `runs` distinct winners from the provided tenders.
+
+    Each winner includes the original tender payload and a concise reason.
+    """
+    tenders: list[dict[str, Any]] = request.tenders
+    if not tenders:
+        return []
+
+    runs = min(max(request.runs, 1), len(tenders))
+    winners: list[TenderWinner] = []
+    selected_ids: set[Any] = set()
+
+    for rank in range(1, runs + 1):
+        llm_choice = pick_tender_winner(
+            candidates=tenders,
+            already_selected_ids=list(selected_ids),
+            company_information_data=request.company_information_data,
+            user_specific_guidelines=request.user_specific_guidelines,
+        )
+        if not llm_choice:
+            break
+
+        winner_id = llm_choice.get("winner_id")
+        if winner_id in selected_ids:
+            break
+
+        matched_tender = next(
+            (t for t in tenders if str(t.get("id")) == str(winner_id)),
+            None,
+        )
+        if not matched_tender:
+            break
+
+        selected_ids.add(winner_id)
+        winners.append(
+            TenderWinner(
+                rank=rank,
+                tender=matched_tender,
+                reason=str(llm_choice.get("reason") or ""),
+            )
+        )
+
+    return winners

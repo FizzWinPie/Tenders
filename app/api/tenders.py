@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -9,8 +10,8 @@ from app.core.config import (
     ALLOWED_SUBMISSION_LANGUAGES,
 )
 from app.db import get_db
-from app.schemas import TenderSearchRequest
-from app.services.tenders import search_all_tenders
+from app.schemas import TenderPickRequest, TenderSearchRequest, TenderWinner
+from app.services.tenders import pick_multiple_tender_winners, search_all_tenders
 
 router = APIRouter(tags=["tenders"])
 
@@ -28,7 +29,7 @@ def get_filter_options():
 @router.post("/run-filtered-search")
 def run_filtered_search(
     body: TenderSearchRequest,
-    db: Session = Depends(get_db),
+    db: Annotated[Session, Depends(get_db)],
 ):
     """Filtered tender search. All query fields are optional; send only what you want to filter by (JSON body)."""
     today = date.today()
@@ -45,3 +46,15 @@ def run_filtered_search(
         "limit": body.limit,
         "tenders": tenders,
     }
+
+
+@router.post("/pick-winners", response_model=list[TenderWinner])
+def pick_winners(
+    body: TenderPickRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Given a shortlist of tenders (typically 5), call the LLM up to `runs` times
+    to pick distinct winners, each with a reason.
+    """
+    return pick_multiple_tender_winners(body)

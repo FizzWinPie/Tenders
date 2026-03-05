@@ -10,14 +10,19 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '#/components/ui/pagination'
-import { getFilterOptions, runFilteredSearch } from '#/lib/api'
+import { getFilterOptions, pickWinners, runFilteredSearch } from '#/lib/api'
 import {
   getTenderDescription,
   getTenderTitle,
   type TenderDisplay,
 } from '#/types/tender'
-import type { DateFilterState, FilterOptions, TenderSearchParams } from '#/types/search'
-import { X } from 'lucide-react'
+import type {
+  DateFilterState,
+  FilterOptions,
+  TenderSearchParams,
+  TenderWinner,
+} from '#/types/search'
+import { Award, Loader2, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 function defaultDateFilter(): DateFilterState {
@@ -53,6 +58,11 @@ export default function HomePage() {
   const [publicationDate, setPublicationDate] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [winners, setWinners] = useState<TenderWinner[]>([])
+  const [pickLoading, setPickLoading] = useState(false)
+  const [pickError, setPickError] = useState<string | null>(null)
+  const [companyInfo, setCompanyInfo] = useState('')
+  const [guidelines, setGuidelines] = useState('')
   const resultsSectionRef = useRef<HTMLElement>(null)
 
   const buildParams = useCallback(
@@ -141,6 +151,27 @@ export default function HomePage() {
   function handleFilterApply() {
     doSearch(buildParams({ page: 1 }))
   }
+
+  const handlePickWinners = useCallback(async () => {
+    const shortlist = tenders.slice(0, 5)
+    if (shortlist.length === 0) return
+    setPickLoading(true)
+    setPickError(null)
+    setWinners([])
+    try {
+      const list = await pickWinners({
+        tenders: shortlist as Array<Record<string, unknown>>,
+        runs: 3,
+        company_information_data: companyInfo.trim() || undefined,
+        user_specific_guidelines: guidelines.trim() || undefined,
+      })
+      setWinners(list)
+    } catch (e) {
+      setPickError(e instanceof Error ? e.message : 'Pick winners failed')
+    } finally {
+      setPickLoading(false)
+    }
+  }, [tenders, companyInfo, guidelines])
 
   const activeFilterChips: { id: string; label: string; onRemove: () => void }[] = []
   if (keyword.trim()) {
@@ -300,6 +331,119 @@ export default function HomePage() {
           )}
         </div>
       </section>
+
+      <section className="mt-4 flex flex-wrap items-stretch gap-4 px-6 sm:px-10">
+        <div className="flex flex-1 flex-col gap-2 min-w-[200px]">
+          <label htmlFor="company-profile" className="text-sm font-medium text-muted-foreground">
+            Company profile (optional)
+          </label>
+          <textarea
+            id="company-profile"
+            value={companyInfo}
+            onChange={(e) => setCompanyInfo(e.target.value)}
+            placeholder="e.g. SAP consulting, public sector"
+            rows={2}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-y"
+            aria-label="Company profile for LLM"
+          />
+        </div>
+        <div className="flex flex-1 flex-col gap-2 min-w-[200px]">
+          <label htmlFor="user-guidelines" className="text-sm font-medium text-muted-foreground">
+            Guidelines (optional)
+          </label>
+          <textarea
+            id="user-guidelines"
+            value={guidelines}
+            onChange={(e) => setGuidelines(e.target.value)}
+            placeholder="e.g. Prefer long-term contracts"
+            rows={2}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-y"
+            aria-label="User guidelines for LLM"
+          />
+        </div>
+        <div className="flex flex-col justify-end">
+          <button
+            type="button"
+            onClick={handlePickWinners}
+            disabled={tenders.length === 0 || pickLoading}
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--chip-line)] bg-[var(--chip-bg)] px-4 py-2.5 text-sm font-semibold text-[var(--sea-ink)] shadow-sm transition hover:bg-[var(--link-bg-hover)] disabled:opacity-50 disabled:pointer-events-none"
+          >
+            {pickLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Wird ausgewählt…
+              </>
+            ) : (
+              <>
+                <Award className="h-4 w-4" aria-hidden />
+                Top 3 Sieger per KI auswählen
+              </>
+            )}
+          </button>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Nutzt die ersten 5 Ausschreibungen aus den Ergebnissen
+          </p>
+        </div>
+      </section>
+
+      {pickError && (
+        <section className="px-6 sm:px-10">
+          <p className="text-destructive" role="alert">{pickError}</p>
+        </section>
+      )}
+
+      {winners.length > 0 && (
+        <section className="mt-6 px-6 sm:px-10" aria-label="LLM picks">
+          <h3 className="mb-3 text-lg font-semibold flex items-center gap-2">
+            <Award className="h-5 w-5 text-[var(--lagoon-deep)]" />
+            Top 3 picks
+          </h3>
+          <ul className="m-0 flex list-none flex-col gap-4 p-0">
+            {winners.map((w) => (
+              <li
+                key={w.rank}
+                className="island-shell rounded-xl border border-border bg-card p-4 shadow-sm border-l-4 border-l-[var(--lagoon)]"
+              >
+                <div className="mb-1 flex items-center gap-2">
+                  <span className="rounded-full bg-[var(--lagoon)]/20 px-2 py-0.5 text-xs font-bold text-[var(--sea-ink)]">
+                    #{w.rank}
+                  </span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    ID: {String((w.tender as { id?: string | number }).id ?? '—')}
+                  </span>
+                </div>
+                <h4 className="mb-1 text-base font-semibold leading-tight">
+                  {getTenderTitle(w.tender as TenderDisplay)}
+                </h4>
+                <p className="mb-2 text-sm text-muted-foreground">
+                  {getTenderDescription(w.tender as TenderDisplay)}
+                </p>
+                <p className="text-sm font-medium text-[var(--sea-ink-soft)]">
+                  Why: {w.reason}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <a
+                    href={(w.tender as { pdf_link?: string }).pdf_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-medium text-primary underline"
+                  >
+                    PDF
+                  </a>
+                  <a
+                    href={(w.tender as { html_link?: string }).html_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-medium text-primary underline"
+                  >
+                    Website
+                  </a>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {error && (
         <section className="px-6 sm:px-10">

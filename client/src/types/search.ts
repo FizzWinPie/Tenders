@@ -34,7 +34,7 @@ export type TenderSearchResponse = {
   page: number
   limit: number
   tenders: Array<{
-    id: string
+    id: string | number
     pdf_link: string
     html_link: string
     deadline?: string
@@ -43,4 +43,19 @@ export type TenderSearchResponse = {
     lot_description: Record<string, string[]>
     lot_procedure_id: string[]
   }>
+}
+
+/** Request body for POST /pick-winners. */
+export type TenderPickParams = {
+  tenders: Array<Record<string, unknown>>
+  runs?: number
+  company_information_data?: string | null
+  user_specific_guidelines?: string | null
+}
+
+/** Single winner from POST /pick-winners. */
+export type TenderWinner = {
+  rank: number
+  tender: Record<string, unknown>
+  reason: string
 }
