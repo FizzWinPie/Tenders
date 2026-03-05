@@ -81,6 +81,7 @@ AGENT_SEARCH_KEYWORDS = """
            - value propositions and differentiators
         2. Prefer concrete, reusable search keywords over full sentences.
         3. Remove duplicates and near-duplicates.
+        4. Sort by relevance for EU tender search: most likely to match first.
 
         ### OUTPUT FORMAT
         Respond ONLY with a single valid JSON array of strings, for example:

@@ -10,6 +10,24 @@ from app.core.config import (
 )
 
 
+def _build_ft_clause(keyword: str) -> str:
+    """
+    Build a TED API full-text (FT) clause from a keyword string.
+    Splits by whitespace and combines each term as a single-quoted FT argument with OR,
+    so notices matching any term are returned (e.g. (FT~'SAP' OR FT~'Cloud' OR FT~'ERP')).
+    """
+    terms = [t.strip() for t in keyword.split() if t.strip()]
+    if not terms:
+        return ""
+    quoted = []
+    for t in terms:
+        escaped = t.replace("'", "''")
+        quoted.append(f"FT~'{escaped}'")
+    if len(quoted) == 1:
+        return quoted[0]
+    return "(" + " OR ".join(quoted) + ")"
+
+
 def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
     """Build TED API query string from validated request. Uses allowlisted clauses only."""
     langs = filters.submission_languages or DEFAULT_SUBMISSION_LANGUAGES
@@ -29,7 +47,9 @@ def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
         or_part = " OR ".join(t.lower().strip() for t in filters.notice_types)
         clauses.append(f"notice-type=({or_part})")
     if filters.keyword and filters.keyword.strip():
-        clauses.append(f"FT~'{filters.keyword.strip()}'")
+        ft = _build_ft_clause(filters.keyword.strip())
+        if ft:
+            clauses.append(ft)
     return " AND ".join(clauses)
 
 

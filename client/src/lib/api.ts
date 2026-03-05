@@ -1,5 +1,6 @@
 import type {
   FilterOptions,
+  KeywordsFromUrlResponse,
   TenderPickParams,
   TenderSearchParams,
   TenderSearchResponse,
@@ -54,4 +55,20 @@ export async function pickWinners(
     throw new Error(`Pick winners failed: ${res.status} ${text}`)
   }
   return res.json() as Promise<TenderWinner[]>
+}
+
+export async function extractKeywordsFromUrl(
+  params: { url: string }
+): Promise<KeywordsFromUrlResponse> {
+  const base = getApiBaseUrl()
+  const res = await fetch(`${base}/extract-keywords`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Keyword extraction failed: ${res.status} ${text}`)
+  }
+  return res.json() as Promise<KeywordsFromUrlResponse>
 }

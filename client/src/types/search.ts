@@ -59,3 +59,8 @@ export type TenderWinner = {
   tender: Record<string, unknown>
   reason: string
 }
+
+/** Response from POST /extract-keywords. */
+export type KeywordsFromUrlResponse = {
+  keywords: string[]
+}

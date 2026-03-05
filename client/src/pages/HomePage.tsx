@@ -10,7 +10,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '#/components/ui/pagination'
-import { getFilterOptions, pickWinners, runFilteredSearch } from '#/lib/api'
+import { getFilterOptions, extractKeywordsFromUrl, pickWinners, runFilteredSearch } from '#/lib/api'
 import {
   getTenderDescription,
   getTenderTitle,
@@ -22,7 +22,7 @@ import type {
   TenderSearchParams,
   TenderWinner,
 } from '#/types/search'
-import { Award, Loader2, X } from 'lucide-react'
+import { Award, Loader2, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 function defaultDateFilter(): DateFilterState {
@@ -61,7 +61,11 @@ export default function HomePage() {
   const [winners, setWinners] = useState<TenderWinner[]>([])
   const [pickLoading, setPickLoading] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
+  const [companyUrl, setCompanyUrl] = useState('')
   const [companyInfo, setCompanyInfo] = useState('')
+  const [extractedKeywords, setExtractedKeywords] = useState<string[]>([])
+  const [keywordsLoading, setKeywordsLoading] = useState(false)
+  const [keywordsError, setKeywordsError] = useState<string | null>(null)
   const [guidelines, setGuidelines] = useState('')
   const resultsSectionRef = useRef<HTMLElement>(null)
 
@@ -70,7 +74,7 @@ export default function HomePage() {
       const mode = overrides.date_mode ?? dateFilter.date_mode
       const p: TenderSearchParams = {
         date_mode: mode,
-        keyword: overrides.keyword !== undefined ? overrides.keyword : (keyword.trim() || undefined),
+        keyword: overrides.keyword !== undefined ? overrides.keyword : (extractedKeywords.length > 0 ? extractedKeywords.join(' ') : (keyword.trim() || undefined)),
         limit: overrides.limit ?? limit,
         page: overrides.page ?? page,
       }
@@ -88,7 +92,7 @@ export default function HomePage() {
       if (nt && nt.length > 0) p.notice_types = nt
       return p
     },
-    [dateFilter, keyword, buyerCountries, submissionLanguages, noticeTypes, limit, page]
+    [dateFilter, keyword, extractedKeywords, buyerCountries, submissionLanguages, noticeTypes, limit, page]
   )
 
   const doSearch = useCallback(
@@ -173,8 +177,39 @@ export default function HomePage() {
     }
   }, [tenders, companyInfo, guidelines])
 
+  const handleFetchKeywords = useCallback(async () => {
+    const url = companyUrl.trim()
+    if (!url) return
+    setKeywordsLoading(true)
+    setKeywordsError(null)
+    try {
+      const { keywords } = await extractKeywordsFromUrl({ url })
+      if (keywords.length > 0) {
+        setExtractedKeywords(keywords.slice(0, 5))
+        setCompanyInfo(keywords.join(', '))
+        await doSearch(buildParams({ keyword: keywords.join(' '), page: 1 }))
+      }
+    } catch (e) {
+      setKeywordsError(e instanceof Error ? e.message : 'Keyword extraction failed')
+    } finally {
+      setKeywordsLoading(false)
+    }
+  }, [companyUrl, buildParams, doSearch])
+
   const activeFilterChips: { id: string; label: string; onRemove: () => void }[] = []
-  if (keyword.trim()) {
+  if (extractedKeywords.length > 0) {
+    extractedKeywords.forEach((kw, i) => {
+      activeFilterChips.push({
+        id: `kw-${i}-${kw}`,
+        label: kw,
+        onRemove: () => {
+          const newList = extractedKeywords.filter((_, idx) => idx !== i)
+          setExtractedKeywords(newList)
+          doSearch(buildParams({ keyword: newList.length > 0 ? newList.join(' ') : undefined, page: 1 }))
+        },
+      })
+    })
+  } else if (keyword.trim()) {
     activeFilterChips.push({
       id: 'keyword',
       label: `Stichwort: ${keyword.trim()}`,
@@ -266,14 +301,14 @@ export default function HomePage() {
                 onChange={setSubmissionLanguages}
                 onApply={handleFilterApply}
               />
-              <Filter
+              {/* <Filter
                 type="noticeType"
                 label={TENDER_FILTER_KINDS[3].label}
                 options={filterOptions.notice_types}
                 value={noticeTypes}
                 onChange={setNoticeTypes}
                 onApply={handleFilterApply}
-              />
+              /> */}
             </>
           )}
         </div>
@@ -334,28 +369,51 @@ export default function HomePage() {
 
       <section className="mt-4 flex flex-wrap items-stretch gap-4 px-6 sm:px-10">
         <div className="flex flex-1 flex-col gap-2 min-w-[200px]">
-          <label htmlFor="company-profile" className="text-sm font-medium text-muted-foreground">
-            Company profile (optional)
+          <label htmlFor="company-url" className="text-sm font-medium text-muted-foreground">
+            Unternehmens-URL
           </label>
-          <textarea
-            id="company-profile"
-            value={companyInfo}
-            onChange={(e) => setCompanyInfo(e.target.value)}
-            placeholder="e.g. SAP consulting, public sector"
-            rows={2}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-y"
-            aria-label="Company profile for LLM"
+          <input
+            id="company-url"
+            type="url"
+            value={companyUrl}
+            onChange={(e) => setCompanyUrl(e.target.value)}
+            placeholder="z.B. https://amazing-company.com"
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            aria-label="Company website URL for keyword extraction"
           />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleFetchKeywords}
+              disabled={!companyUrl.trim() || keywordsLoading}
+              className="inline-flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 text-sm font-medium transition hover:bg-accent disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {keywordsLoading ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  Keywords werden ermittelt…
+                </>
+              ) : (
+                <>
+                  <Search className="h-3.5 w-3.5" aria-hidden />
+                  Keywords von URL holen
+                </>
+              )}
+            </button>
+          </div>
+          {keywordsError && (
+            <p className="text-sm text-destructive" role="alert">{keywordsError}</p>
+          )}
         </div>
         <div className="flex flex-1 flex-col gap-2 min-w-[200px]">
           <label htmlFor="user-guidelines" className="text-sm font-medium text-muted-foreground">
-            Guidelines (optional)
+            Anweisungen für die KI (empfohlen)
           </label>
           <textarea
             id="user-guidelines"
             value={guidelines}
             onChange={(e) => setGuidelines(e.target.value)}
-            placeholder="e.g. Prefer long-term contracts"
+            placeholder="z.B. Bevorzuge Langfristverträge"
             rows={2}
             className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-y"
             aria-label="User guidelines for LLM"
