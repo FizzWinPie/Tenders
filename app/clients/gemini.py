@@ -11,6 +11,19 @@ from trafilatura import fetch_url, extract
 
 logger = logging.getLogger(__name__)
 
+
+class GeminiQuotaExhaustedError(Exception):
+    """Raised when the Gemini API returns 429 / quota exhausted."""
+
+
+def _is_quota_exhausted(e: Exception) -> bool:
+    """True if the error is 429 / RESOURCE_EXHAUSTED."""
+    if getattr(e, "code", None) == 429:
+        return True
+    msg = str(e).upper()
+    return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "QUOTA" in msg
+
+
 AGENT_GENERAL_GUIDELINES = """
         ### ROLE
         You are a Precision Document Analyst. Your goal is to extract and analyze procurement data with 100% factual accuracy.
@@ -278,6 +291,8 @@ def pick_tender_winner(
         )
     except genai_errors.ClientError as e:
         logger.warning("Gemini client error during pick_tender_winner: %s", e)
+        if _is_quota_exhausted(e):
+            raise GeminiQuotaExhaustedError("Gemini quota exhausted") from e
         return None
     except genai_errors.ServerError as e:
         logger.warning("Gemini service unavailable during pick_tender_winner: %s", e)
@@ -310,6 +325,8 @@ def select_keywords(input_data: str) -> list[str]:
         )
     except genai_errors.ClientError as e:
         logger.warning("Gemini client error during select_keywords: %s", e)
+        if _is_quota_exhausted(e):
+            raise GeminiQuotaExhaustedError("Gemini quota exhausted") from e
         return []
     except genai_errors.ServerError as e:
         logger.warning("Gemini service unavailable during select_keywords: %s", e)

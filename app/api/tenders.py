@@ -1,8 +1,10 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.clients.gemini import GeminiQuotaExhaustedError
 
 from app.core.config import (
     ALLOWED_BUYER_COUNTRIES,
@@ -63,7 +65,13 @@ def pick_winners(
     Given a shortlist of tenders (typically 5), call the LLM up to `runs` times
     to pick distinct winners, each with a reason.
     """
-    return pick_multiple_tender_winners(body)
+    try:
+        return pick_multiple_tender_winners(body)
+    except GeminiQuotaExhaustedError:
+        raise HTTPException(
+            status_code=429,
+            detail="Quota exceeded. The AI agent is temporarily unavailable.",
+        )
 
 
 @router.post("/extract-keywords")
@@ -72,5 +80,11 @@ def extract_keywords(body: KeywordsFromUrlRequest):
     Scrape the given URL and use the LLM to extract company-context keywords.
     Returns a list of keywords suitable for tender search.
     """
-    keywords = keywords_from_url(body.url)
-    return {"keywords": keywords}
+    try:
+        keywords = keywords_from_url(body.url)
+        return {"keywords": keywords}
+    except GeminiQuotaExhaustedError:
+        raise HTTPException(
+            status_code=429,
+            detail="Quota exceeded. The AI agent is temporarily unavailable.",
+        )

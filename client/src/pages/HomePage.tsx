@@ -44,6 +44,17 @@ function getDaysLeftText(deadline: string): string {
   return 'Abgelaufen'
 }
 
+const AI_QUOTA_EXHAUSTED_MESSAGE =
+  'Der KI-Agent ist derzeit nicht verfügbar (Tageslimit ausgeschöpft). Bitte später erneut versuchen.'
+
+function isAiQuotaExhaustedError(message: string): boolean {
+  return (
+    message.includes('429') ||
+    message.toLowerCase().includes('quota') ||
+    message.toLowerCase().includes('resource_exhausted')
+  )
+}
+
 export default function HomePage() {
   const [keyword, setKeyword] = useState('')
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null)
@@ -171,7 +182,8 @@ export default function HomePage() {
       })
       setWinners(list)
     } catch (e) {
-      setPickError(e instanceof Error ? e.message : 'Pick winners failed')
+      const msg = e instanceof Error ? e.message : 'Pick winners failed'
+      setPickError(isAiQuotaExhaustedError(msg) ? AI_QUOTA_EXHAUSTED_MESSAGE : msg)
     } finally {
       setPickLoading(false)
     }
@@ -190,7 +202,8 @@ export default function HomePage() {
         await doSearch(buildParams({ keyword: keywords.join(' '), page: 1 }))
       }
     } catch (e) {
-      setKeywordsError(e instanceof Error ? e.message : 'Keyword extraction failed')
+      const msg = e instanceof Error ? e.message : 'Keyword extraction failed'
+      setKeywordsError(isAiQuotaExhaustedError(msg) ? AI_QUOTA_EXHAUSTED_MESSAGE : msg)
     } finally {
       setKeywordsLoading(false)
     }
@@ -269,6 +282,13 @@ export default function HomePage() {
 
   return (
     <main className="page-wrap">
+      {(pickError === AI_QUOTA_EXHAUSTED_MESSAGE || keywordsError === AI_QUOTA_EXHAUSTED_MESSAGE) && (
+        <section className="mx-4 mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 sm:mx-6 sm:px-6" role="alert">
+          <p className="m-0 text-sm font-medium">
+            {AI_QUOTA_EXHAUSTED_MESSAGE}
+          </p>
+        </section>
+      )}
       <section className='flex flex-wrap items-end gap-2 rise-in overflow-hidden rounded-[2rem] px-6 pt-10 pb-4 sm:px-10 sm:pt-14 sm:pb-6'>
         <div className='flex flex-row w-full items-end gap-1'>
           <InputButtonGroup
