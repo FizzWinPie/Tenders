@@ -10,8 +10,14 @@ from app.core.config import (
     ALLOWED_SUBMISSION_LANGUAGES,
 )
 from app.db import get_db
-from app.schemas import TenderPickRequest, TenderSearchRequest, TenderWinner
+from app.schemas import (
+    KeywordsFromUrlRequest,
+    TenderPickRequest,
+    TenderSearchRequest,
+    TenderWinner,
+)
 from app.services.tenders import pick_multiple_tender_winners, search_all_tenders
+from app.clients.gemini import keywords_from_url
 
 router = APIRouter(tags=["tenders"])
 
@@ -58,3 +64,13 @@ def pick_winners(
     to pick distinct winners, each with a reason.
     """
     return pick_multiple_tender_winners(body)
+
+
+@router.post("/extract-keywords")
+def extract_keywords(body: KeywordsFromUrlRequest):
+    """
+    Scrape the given URL and use the LLM to extract company-context keywords.
+    Returns a list of keywords suitable for tender search.
+    """
+    keywords = keywords_from_url(body.url)
+    return {"keywords": keywords}

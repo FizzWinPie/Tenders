@@ -148,3 +148,14 @@ class TenderWinner(BaseModel):
         ...,
         description="Short explanation why this tender was selected.",
     )
+
+
+class KeywordsFromUrlRequest(BaseModel):
+    """Request body for extracting keywords from a company website URL."""
+
+    url: str = Field(
+        ...,
+        description="Company website URL to scrape and analyze for keywords.",
+        min_length=1,
+        examples=["https://example.com/about"],
+    )

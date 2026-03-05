@@ -7,6 +7,8 @@ from google.genai import errors as genai_errors
 
 from app.core.config import GEMINI_AGENT_MODEL, GEMINI_API_KEY
 
+from trafilatura import fetch_url, extract
+
 logger = logging.getLogger(__name__)
 
 AGENT_GENERAL_GUIDELINES = """
@@ -64,6 +66,35 @@ SELECTION_GENERAL_GUIDELINES = """
         Do not include any additional text before or after the JSON.
         """
 
+AGENT_SEARCH_KEYWORDS = """
+        ### ROLE
+        You are a Company Context Keyword Extractor. Your goal is to capture the most important concepts that describe a company's focus, services, and positioning.
+
+        ### INPUT
+        You receive free-text company information, possibly long marketing copy.
+
+        ### OUTPUT RULES
+        1. Identify the most important concise keywords or short phrases that describe:
+           - products / services
+           - technologies / platforms
+           - target customers
+           - value propositions and differentiators
+        2. Prefer concrete, reusable search keywords over full sentences.
+        3. Remove duplicates and near-duplicates.
+
+        ### OUTPUT FORMAT
+        Respond ONLY with a single valid JSON array of strings, for example:
+        [
+          "SAP Cloud ERP",
+          "SAP S/4HANA Cloud",
+          "Public Cloud ERP",
+          "Mittelstand",
+          "Scale-ups",
+          "schnelle Einführung",
+          "ERP für Wachstum"
+        ]
+        Do not include any additional text before or after the JSON.
+        """
 
 def _extract_json_text(raw: str) -> str:
     """Strip markdown code fences (e.g. ```json ... ```) if present."""
@@ -112,6 +143,39 @@ def parse_selection_response(res: Any) -> dict[str, Any] | None:
         return None
 
     return parsed
+
+
+def parse_keywords_response(res: Any) -> list[str]:
+    raw_text = getattr(res, "text", None) or ""
+    text = _extract_json_text(raw_text)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse select_keywords response as JSON: %s", raw_text)
+        return []
+
+    # Primary expected shape: JSON array of strings
+    if isinstance(parsed, list):
+        keywords: list[str] = []
+        for item in parsed:
+            if isinstance(item, str):
+                kw = item.strip()
+                if kw:
+                    keywords.append(kw)
+        return keywords
+
+    # Be tolerant to {"keywords": [...]} shape if it ever occurs
+    if isinstance(parsed, dict) and isinstance(parsed.get("keywords"), list):
+        keywords = []
+        for item in parsed["keywords"]:
+            if isinstance(item, str):
+                kw = item.strip()
+                if kw:
+                    keywords.append(kw)
+        return keywords
+
+    logger.warning("select_keywords returned JSON in unexpected format: %s", parsed)
+    return []
 
 
 def build_agent_context(
@@ -222,3 +286,54 @@ def pick_tender_winner(
         return None
 
     return parse_selection_response(res)
+
+def select_keywords(input_data: str) -> list[str]:
+    """
+    Extract a list of important company-context keywords from free-text input
+    using Gemini. Returns an empty list on failure.
+    """
+    if not input_data:
+        return []
+
+    api_key = GEMINI_API_KEY
+    if not api_key:
+        logger.warning("GEMINI_API_KEY not set")
+        return []
+
+    client = genai.Client(api_key=api_key)
+    context = f"{AGENT_SEARCH_KEYWORDS}\n\n[Company Information]\n{input_data}"
+    try:
+        res = client.models.generate_content(
+            model=GEMINI_AGENT_MODEL,
+            contents=context,
+        )
+    except genai_errors.ClientError as e:
+        logger.warning("Gemini client error during select_keywords: %s", e)
+        return []
+    except genai_errors.ServerError as e:
+        logger.warning("Gemini service unavailable during select_keywords: %s", e)
+        return []
+    except Exception:
+        logger.exception("Unexpected error during select_keywords")
+        return []
+
+    return parse_keywords_response(res)
+
+def scrape_website(url: str) -> str | None:
+    """Fetch URL and extract main text with trafilatura. Returns None on failure."""
+    downloaded = fetch_url(url)
+    if downloaded is None:
+        return None
+    return extract(downloaded)
+
+
+def keywords_from_url(url: str) -> list[str]:
+    """
+    Scrape a company website and use Gemini to extract search keywords from its content.
+    Returns a list of keywords, or an empty list if scraping or keyword extraction fails.
+    """
+    content = scrape_website(url)
+    if not content or not content.strip():
+        logger.warning("scrape_website returned no content for url=%s", url)
+        return []
+    return select_keywords(content)

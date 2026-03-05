@@ -1,6 +1,6 @@
 /** Shape of a tender as returned by the search API (for display). */
 export type TenderDisplay = {
-  id: string
+  id: string | number
   pdf_link: string
   html_link: string
   deadline?: string | null
