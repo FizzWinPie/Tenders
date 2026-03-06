@@ -59,8 +59,8 @@ export default function HomePage() {
   const [keyword, setKeyword] = useState('')
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null)
   const [dateFilter, setDateFilter] = useState<DateFilterState>(defaultDateFilter)
-  const [buyerCountries, setBuyerCountries] = useState<string[]>(['AUT', 'DEU', 'CHE'])
-  const [submissionLanguages, setSubmissionLanguages] = useState<string[]>(['ENG', 'DEU'])
+  const [buyerCountries, setBuyerCountries] = useState<string[]>([])
+  const [submissionLanguages, setSubmissionLanguages] = useState<string[]>([])
   const [noticeTypes, setNoticeTypes] = useState<string[]>([])
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState(10)
@@ -139,8 +139,6 @@ export default function HomePage() {
     setLoading(true)
     runFilteredSearch({
       date_mode: 'exact',
-      buyer_countries: ['AUT', 'DEU', 'CHE'],
-      submission_languages: ['ENG', 'DEU'],
       limit: 10,
       page: 1,
     })

@@ -39,12 +39,12 @@ class TenderSearchRequest(BaseModel):
     )
     submission_languages: list[str] | None = Field(
         default=None,
-        description="Submission languages (3-letter codes, e.g. ENG, DEU). Uses allowlist. Default: ENG, DEU.",
+        description="Submission languages (3-letter codes, e.g. ENG, DEU). Uses allowlist. Default: None.",
         examples=[["ENG", "DEU"]],
     )
     buyer_countries: list[str] | None = Field(
-        default=["DEU"],
-        description="Buyer countries (3-letter codes, e.g. AUT, DEU, CHE). Uses allowlist. Default: AUT, DEU, CHE.",
+        default=None,
+        description="Buyer countries (3-letter codes, e.g. AUT, DEU, CHE). Uses allowlist. Default: None",
         examples=[["AUT", "DEU", "CHE"]],
     )
     notice_types: list[str] | None = Field(

@@ -4,11 +4,6 @@ from app.clients.gemini import pick_tender_winner
 from app.clients.ted import search_tenders
 from app.schemas.tenders import TenderPickRequest, TenderWinner, TenderSearchRequest
 
-from app.core.config import (
-    DEFAULT_BUYER_COUNTRIES,
-    DEFAULT_SUBMISSION_LANGUAGES,
-)
-
 
 def _build_ft_clause(keyword: str) -> str:
     """
@@ -30,12 +25,15 @@ def _build_ft_clause(keyword: str) -> str:
 
 def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
     """Build TED API query string from validated request. Uses allowlisted clauses only."""
-    langs = filters.submission_languages or DEFAULT_SUBMISSION_LANGUAGES
-    countries = filters.buyer_countries or DEFAULT_BUYER_COUNTRIES
-    clauses = [
-        "submission-language IN (" + " ".join(s.upper() for s in langs) + ")",
-        "buyer-country IN (" + " ".join(c.upper() for c in countries) + ")",
-    ]
+    clauses: list[str] = []
+    if filters.submission_languages:
+        clauses.append(
+            "submission-language IN (" + " ".join(s.upper() for s in filters.submission_languages) + ")"
+        )
+    if filters.buyer_countries:
+        clauses.append(
+            "buyer-country IN (" + " ".join(c.upper() for c in filters.buyer_countries) + ")"
+        )
     if filters.date_mode == "range" and filters.date_from and filters.date_to:
         clauses.append(
             f"publication-date>={filters.date_from} AND publication-date<={filters.date_to}"
@@ -50,7 +48,7 @@ def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
         ft = _build_ft_clause(filters.keyword.strip())
         if ft:
             clauses.append(ft)
-    return " AND ".join(clauses)
+    return " AND ".join(clauses) + " SORT BY publication-number DESC"
 
 
 def search_all_tenders(filters: TenderSearchRequest, default_date: str) -> tuple[list[dict], int]:
