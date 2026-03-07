@@ -10,7 +10,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '#/components/ui/pagination'
-import { getFilterOptions, extractKeywordsFromUrl, pickWinners, runFilteredSearch } from '#/lib/api'
+import { getFilterOptions, extractKeywordsFromUrl, pickWinners, runFilteredSearch, ApiError } from '#/lib/api'
 import {
   getTenderDescription,
   getTenderTitle,
@@ -32,6 +32,22 @@ function defaultDateFilter(): DateFilterState {
     date_from: '',
     date_to: '',
   }
+}
+
+/** Returns YYYYMMDD for a date. */
+function formatYYYYMMDD(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}${m}${day}`
+}
+
+/** Default 1-week range: from 7 days ago to today. */
+function getDefaultRangeWeek(): { date_from: string; date_to: string } {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(start.getDate() - 7)
+  return { date_from: formatYYYYMMDD(start), date_to: formatYYYYMMDD(end) }
 }
 
 function getDaysLeftText(deadline: string): string {
@@ -91,11 +107,19 @@ export default function HomePage() {
         page: overrides.page ?? page,
       }
       if (kwList && kwList.length > 0) p.keywords = kwList
-      if (mode === 'range' && overrides.date_from === undefined && overrides.date_to === undefined && dateFilter.date_from && dateFilter.date_to) {
-        p.date_from = dateFilter.date_from
-        p.date_to = dateFilter.date_to
-      } else if (mode === 'exact' && overrides.input_date === undefined && dateFilter.input_date) {
-        p.input_date = dateFilter.input_date
+      if (mode === 'range') {
+        const from = overrides.date_from ?? dateFilter.date_from
+        const to = overrides.date_to ?? dateFilter.date_to
+        if (from && to) {
+          p.date_from = from
+          p.date_to = to
+        } else {
+          const def = getDefaultRangeWeek()
+          p.date_from = def.date_from
+          p.date_to = def.date_to
+        }
+      } else if (mode === 'exact' && (overrides.input_date !== undefined || dateFilter.input_date)) {
+        p.input_date = overrides.input_date ?? dateFilter.input_date ?? undefined
       }
       const bc = overrides.buyer_countries !== undefined ? overrides.buyer_countries : buyerCountries
       if (bc && bc.length > 0) p.buyer_countries = bc
@@ -121,7 +145,8 @@ export default function HomePage() {
         setPage(res.page)
         setLimit(res.limit)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Search failed')
+        const msg = e instanceof Error ? e.message : 'Suche fehlgeschlagen.'
+        setError(e instanceof ApiError && e.status === 429 ? AI_QUOTA_EXHAUSTED_MESSAGE : msg)
         setTenders([])
         setTotalCount(0)
       } finally {
@@ -151,7 +176,10 @@ export default function HomePage() {
         setPage(res.page)
         setLimit(res.limit)
       })
-      .catch((e) => setError(e instanceof Error ? e.message : 'Search failed'))
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : 'Suche fehlgeschlagen.'
+        setError(e instanceof ApiError && e.status === 429 ? AI_QUOTA_EXHAUSTED_MESSAGE : msg)
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -183,7 +211,9 @@ export default function HomePage() {
       setWinners(list)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Pick winners failed'
-      setPickError(isAiQuotaExhaustedError(msg) ? AI_QUOTA_EXHAUSTED_MESSAGE : msg)
+      setPickError(
+        e instanceof ApiError && e.status === 429 ? AI_QUOTA_EXHAUSTED_MESSAGE : isAiQuotaExhaustedError(msg) ? AI_QUOTA_EXHAUSTED_MESSAGE : msg
+      )
     } finally {
       setPickLoading(false)
     }
@@ -204,7 +234,9 @@ export default function HomePage() {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Keyword extraction failed'
-      setKeywordsError(isAiQuotaExhaustedError(msg) ? AI_QUOTA_EXHAUSTED_MESSAGE : msg)
+      setKeywordsError(
+        e instanceof ApiError && e.status === 429 ? AI_QUOTA_EXHAUSTED_MESSAGE : isAiQuotaExhaustedError(msg) ? AI_QUOTA_EXHAUSTED_MESSAGE : msg
+      )
     } finally {
       setKeywordsLoading(false)
     }
@@ -296,7 +328,14 @@ export default function HomePage() {
                 type="date"
                 label={TENDER_FILTER_KINDS[0].label}
                 value={dateFilter}
-                onChange={setDateFilter}
+                onChange={(newValue) => {
+                  if (newValue.date_mode === 'range' && !newValue.date_from && !newValue.date_to) {
+                    const def = getDefaultRangeWeek()
+                    setDateFilter({ ...newValue, date_from: def.date_from, date_to: def.date_to })
+                  } else {
+                    setDateFilter(newValue)
+                  }
+                }}
                 onApply={handleFilterApply}
               />
               <Filter
