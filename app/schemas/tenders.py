@@ -33,9 +33,14 @@ class TenderSearchRequest(BaseModel):
     )
     keyword: str | None = Field(
         default=None,
-        description="Full-text search term (e.g. SAP). Optional.",
+        description="Full-text search term (single phrase). Optional. Ignored if keywords is provided.",
         min_length=1,
         examples=["SAP"],
+    )
+    keywords: list[str] | None = Field(
+        default=None,
+        description="Multiple full-text search terms (each exact phrase, OR combined). Optional.",
+        examples=[["SAP", "Cloud", "ERP"]],
     )
     submission_languages: list[str] | None = Field(
         default=None,

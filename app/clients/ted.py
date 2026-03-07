@@ -77,15 +77,8 @@ def search_tenders(
                     "lot_procedure_id": notice.get("BT-22-Lot") or [],
                 }
             )
-        total = data.get("total") or data.get("totalCount") or data.get("numberOfResults")
-        if total is not None:
-            try:
-                total = int(total)
-            except (TypeError, ValueError):
-                total = len(tenders)
-        else:
-            total = len(tenders)
-        return tenders, total
+        total_notice_count = data.get("totalNoticeCount") or 0
+        return tenders, total_notice_count
 
     except requests.exceptions.RequestException as e:
         logger.error("Tender API request failed: %s", e)

@@ -8,10 +8,20 @@ export type SearchBarProps = {
   value: string
   onChange: (value: string) => void
   onSearch: () => void
+  onAdd?: (term: string) => void
   placeholder?: string
 }
 
-export function InputButtonGroup({ value, onChange, onSearch, placeholder = 'Suchen mit Keyword (eg. SAP)' }: SearchBarProps) {
+export function InputButtonGroup({ value, onChange, onSearch, onAdd, placeholder = 'Stichwort eingeben (z. B. SAP) – mit Enter hinzufügen' }: SearchBarProps) {
+  function handleAdd() {
+    const term = value.trim()
+    if (term && onAdd) {
+      onAdd(term)
+      onChange('')
+    } else if (!onAdd && term) {
+      onSearch()
+    }
+  }
   return (
     <Field>
       <FieldLabel htmlFor="input-button-group" className="display-title mb-5 max-w-3xl text-4xl leading-[1.02] font-bold tracking-tight text-[var(--sea-ink)] sm:text-6xl">Suchergebnisse</FieldLabel>
@@ -21,8 +31,22 @@ export function InputButtonGroup({ value, onChange, onSearch, placeholder = 'Suc
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onSearch()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              if (onAdd) {
+                e.preventDefault()
+                handleAdd()
+              } else {
+                onSearch()
+              }
+            }
+          }}
         />
+        {/* {onAdd && (
+          <Button type="button" variant="outline" onClick={handleAdd} aria-label="Stichwort hinzufügen">
+            Hinzufügen
+          </Button>
+        )} */}
         <Button type="button" variant="outline" onClick={onSearch} aria-label="Suchen">
           <Search />
         </Button>

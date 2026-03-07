@@ -20,6 +20,7 @@ export type TenderSearchParams = {
   date_from?: string | null
   date_to?: string | null
   keyword?: string | null
+  keywords?: string[] | null
   submission_languages?: string[] | null
   buyer_countries?: string[] | null
   notice_types?: string[] | null

@@ -56,7 +56,8 @@ function isAiQuotaExhaustedError(message: string): boolean {
 }
 
 export default function HomePage() {
-  const [keyword, setKeyword] = useState('')
+  const [keywordInput, setKeywordInput] = useState('')
+  const [keywords, setKeywords] = useState<string[]>([])
   const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null)
   const [dateFilter, setDateFilter] = useState<DateFilterState>(defaultDateFilter)
   const [buyerCountries, setBuyerCountries] = useState<string[]>([])
@@ -83,12 +84,13 @@ export default function HomePage() {
   const buildParams = useCallback(
     (overrides: Partial<TenderSearchParams> = {}): TenderSearchParams => {
       const mode = overrides.date_mode ?? dateFilter.date_mode
+      const kwList = overrides.keywords !== undefined ? overrides.keywords : keywords
       const p: TenderSearchParams = {
         date_mode: mode,
-        keyword: overrides.keyword !== undefined ? overrides.keyword : (extractedKeywords.length > 0 ? extractedKeywords.join(' ') : (keyword.trim() || undefined)),
         limit: overrides.limit ?? limit,
         page: overrides.page ?? page,
       }
+      if (kwList && kwList.length > 0) p.keywords = kwList
       if (mode === 'range' && overrides.date_from === undefined && overrides.date_to === undefined && dateFilter.date_from && dateFilter.date_to) {
         p.date_from = dateFilter.date_from
         p.date_to = dateFilter.date_to
@@ -103,7 +105,7 @@ export default function HomePage() {
       if (nt && nt.length > 0) p.notice_types = nt
       return p
     },
-    [dateFilter, keyword, extractedKeywords, buyerCountries, submissionLanguages, noticeTypes, limit, page]
+    [dateFilter, keywords, buyerCountries, submissionLanguages, noticeTypes, limit, page]
   )
 
   const doSearch = useCallback(
@@ -193,11 +195,12 @@ export default function HomePage() {
     setKeywordsLoading(true)
     setKeywordsError(null)
     try {
-      const { keywords } = await extractKeywordsFromUrl({ url })
-      if (keywords.length > 0) {
-        setExtractedKeywords(keywords.slice(0, 5))
-        setCompanyInfo(keywords.join(', '))
-        await doSearch(buildParams({ keyword: keywords.join(' '), page: 1 }))
+      const { keywords: extracted } = await extractKeywordsFromUrl({ url })
+      if (extracted.length > 0) {
+        setExtractedKeywords(extracted.slice(0, 5))
+        setCompanyInfo(extracted.join(', '))
+        setKeywords(extracted.slice(0, 5))
+        await doSearch(buildParams({ keywords: extracted.slice(0, 5), page: 1 }))
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Keyword extraction failed'
@@ -208,28 +211,17 @@ export default function HomePage() {
   }, [companyUrl, buildParams, doSearch])
 
   const activeFilterChips: { id: string; label: string; onRemove: () => void }[] = []
-  if (extractedKeywords.length > 0) {
-    extractedKeywords.forEach((kw, i) => {
-      activeFilterChips.push({
-        id: `kw-${i}-${kw}`,
-        label: kw,
-        onRemove: () => {
-          const newList = extractedKeywords.filter((_, idx) => idx !== i)
-          setExtractedKeywords(newList)
-          doSearch(buildParams({ keyword: newList.length > 0 ? newList.join(' ') : undefined, page: 1 }))
-        },
-      })
-    })
-  } else if (keyword.trim()) {
+  keywords.forEach((kw, i) => {
     activeFilterChips.push({
-      id: 'keyword',
-      label: `Stichwort: ${keyword.trim()}`,
+      id: `kw-${i}-${kw}`,
+      label: kw,
       onRemove: () => {
-        setKeyword('')
-        doSearch(buildParams({ keyword: undefined }))
+        const newList = keywords.filter((_, idx) => idx !== i)
+        setKeywords(newList)
+        doSearch(buildParams({ keywords: newList.length > 0 ? newList : undefined, page: 1 }))
       },
     })
-  }
+  })
   const hasDateFilter =
     (dateFilter.date_mode === 'exact' && dateFilter.input_date) ||
     (dateFilter.date_mode === 'range' && dateFilter.date_from && dateFilter.date_to)
@@ -289,11 +281,15 @@ export default function HomePage() {
       )}
       <section className='flex flex-wrap items-end gap-2 rise-in overflow-hidden rounded-[2rem] px-6 pt-10 pb-4 sm:px-10 sm:pt-14 sm:pb-6'>
         <div className='flex flex-row w-full items-end gap-1'>
-          <InputButtonGroup
-            value={keyword}
-            onChange={setKeyword}
-            onSearch={handleSearch}
-          />
+            <InputButtonGroup
+              value={keywordInput}
+              onChange={setKeywordInput}
+              onSearch={handleSearch}
+              onAdd={(term) => {
+                setKeywords((k) => [...k, term])
+                setKeywordInput('')
+              }}
+            />
           {filterOptions && (
             <>
               <Filter

@@ -7,20 +7,16 @@ from app.schemas.tenders import TenderPickRequest, TenderWinner, TenderSearchReq
 
 def _build_ft_clause(keyword: str) -> str:
     """
-    Build a TED API full-text (FT) clause from a keyword string.
-    Splits by whitespace and combines each term as a single-quoted FT argument with OR,
-    so notices matching any term are returned (e.g. (FT~'SAP' OR FT~'Cloud' OR FT~'ERP')).
+    Build a TED API full-text (FT) clause for exact phrase match.
+    The whole keyword (including spaces) is matched as one phrase, e.g. FT~"SAP Losung". If SAP in title and Losung in description it will be ignored.
+    FT~"..." means exact phrase match; unquoted FT~ would allow partial matches (e.g. SAP-Losung).
+    TODO: I can also make partial match for words with space.
     """
-    terms = [t.strip() for t in keyword.split() if t.strip()]
-    if not terms:
+    s = keyword.strip()
+    if not s:
         return ""
-    quoted = []
-    for t in terms:
-        escaped = t.replace("'", "''")
-        quoted.append(f"FT~'{escaped}'")
-    if len(quoted) == 1:
-        return quoted[0]
-    return "(" + " OR ".join(quoted) + ")"
+    escaped = s.replace("'", "''").replace('"', '\\"')
+    return f'FT~"{escaped}"'
 
 
 def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
@@ -44,7 +40,13 @@ def build_ted_query(filters: TenderSearchRequest, default_date: str) -> str:
     if filters.notice_types:
         or_part = " OR ".join(t.lower().strip() for t in filters.notice_types)
         clauses.append(f"notice-type=({or_part})")
-    if filters.keyword and filters.keyword.strip():
+    keyword_terms = [t.strip() for t in (filters.keywords or []) if t and t.strip()]
+    if keyword_terms:
+        ft_clauses = [_build_ft_clause(t) for t in keyword_terms]
+        ft_clauses = [c for c in ft_clauses if c]
+        if ft_clauses:
+            clauses.append("(" + " OR ".join(ft_clauses) + ")")
+    elif filters.keyword and filters.keyword.strip():
         ft = _build_ft_clause(filters.keyword.strip())
         if ft:
             clauses.append(ft)
