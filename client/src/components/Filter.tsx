@@ -1,12 +1,69 @@
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { Calendar } from '@/components/ui/calendar'
 import type { DateFilterState } from '#/types/search'
+
+function dateToYYYYMMDD(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}${m}${day}`
+}
+
+function yyyymmddToDate(s: string): Date | undefined {
+  if (!s || s.length !== 8) return undefined
+  const y = parseInt(s.slice(0, 4), 10)
+  const m = parseInt(s.slice(4, 6), 10) - 1
+  const d = parseInt(s.slice(6, 8), 10)
+  const date = new Date(y, m, d)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function getDefaultRangeWeek(): { date_from: string; date_to: string } {
+  const end = new Date()
+  const start = new Date()
+  start.setDate(start.getDate() - 7)
+  return { date_from: dateToYYYYMMDD(start), date_to: dateToYYYYMMDD(end) }
+}
+
+const DATE_PRESETS: { id: string; label: string; getValue: () => DateFilterState }[] = [
+  {
+    id: 'today',
+    label: 'Heute',
+    getValue: () => {
+      const d = new Date()
+      return { date_mode: 'exact', input_date: dateToYYYYMMDD(d), date_from: '', date_to: '' }
+    },
+  },
+  {
+    id: 'last7',
+    label: 'Letzte 7 Tage',
+    getValue: () => {
+      const def = getDefaultRangeWeek()
+      return { date_mode: 'range', input_date: '', date_from: def.date_from, date_to: def.date_to }
+    },
+  },
+  {
+    id: 'last30',
+    label: 'Letzte 30 Tage',
+    getValue: () => {
+      const end = new Date()
+      const start = new Date()
+      start.setDate(start.getDate() - 30)
+      return {
+        date_mode: 'range',
+        input_date: '',
+        date_from: dateToYYYYMMDD(start),
+        date_to: dateToYYYYMMDD(end),
+      }
+    },
+  },
+]
 
 const COUNTRY_LABELS: Record<string, string> = {
   AUT: 'Österreich',
@@ -31,14 +88,6 @@ const NOTICE_TYPE_LABELS: Record<string, string> = {
   'qu-sy': 'QU/SY',
   subco: 'Subco',
   veat: 'VEAT',
-}
-
-function formatToday(): string {
-  const d = new Date()
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}${m}${day}`
 }
 
 export type DateFilterProps = {
@@ -69,6 +118,19 @@ export function Filter(props: FilterProps) {
 
   if (isDateFilter(props)) {
     const { value, onChange, onApply } = props
+    const handleModeChange = (mode: 'exact' | 'range') => {
+      if (mode === value.date_mode) return
+      if (mode === 'range') {
+        const def = getDefaultRangeWeek()
+        onChange({ ...value, date_mode: 'range', input_date: '', date_from: def.date_from, date_to: def.date_to })
+      } else {
+        const d = new Date()
+        onChange({ ...value, date_mode: 'exact', input_date: dateToYYYYMMDD(d), date_from: '', date_to: '' })
+      }
+    }
+    const singleDate = value.date_mode === 'exact' ? yyyymmddToDate(value.input_date) : undefined
+    const rangeFrom = value.date_mode === 'range' ? yyyymmddToDate(value.date_from) : undefined
+    const rangeTo = value.date_mode === 'range' ? yyyymmddToDate(value.date_to) : undefined
     return (
       <Popover>
         <PopoverTrigger asChild>
@@ -76,61 +138,75 @@ export function Filter(props: FilterProps) {
             {displayLabel}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-80" align="start">
-          <div className="grid gap-4">
-            <h4 className="text-sm font-medium">{displayLabel}</h4>
-            <div className="flex gap-2">
+        <PopoverContent className="w-auto p-0" align="start">
+          <div className="grid gap-3 p-3">
+            {/* <h4 className="text-sm font-medium px-2">{displayLabel}</h4> */}
+            <div className="flex flex-wrap gap-1.5">
+              {DATE_PRESETS.map((preset) => (
+                <Button
+                  key={preset.id}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={() => {
+                    onChange(preset.getValue())
+                    onApply()
+                  }}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-2 items-center">
               <Label className="sr-only">Modus</Label>
               <select
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                className="h-9 text-center rounded-md border border-input bg-background px-3 text-sm w-full"
                 value={value.date_mode}
-                onChange={(e) =>
-                  onChange({
-                    ...value,
-                    date_mode: e.target.value as 'exact' | 'range',
-                  })
-                }
+                onChange={(e) => handleModeChange(e.target.value as 'exact' | 'range')}
               >
                 <option value="exact">Einzelnes Datum</option>
                 <option value="range">Zeitraum</option>
               </select>
             </div>
             {value.date_mode === 'exact' ? (
-              <div className="grid gap-2">
-                <Label htmlFor="filter-date-exact">Datum (YYYYMMDD)</Label>
-                <Input
-                  id="filter-date-exact"
-                  placeholder={formatToday()}
-                  value={value.input_date}
-                  onChange={(e) =>
-                    onChange({ ...value, input_date: e.target.value })
-                  }
-                  className="h-8"
-                />
-              </div>
+              <Calendar
+                mode="single"
+                selected={singleDate}
+                onSelect={(d) =>
+                  onChange({
+                    ...value,
+                    date_mode: 'exact',
+                    input_date: d ? dateToYYYYMMDD(d) : '',
+                    date_from: '',
+                    date_to: '',
+                  })
+                }
+                className="rounded-lg border"
+              />
             ) : (
-              <div className="grid gap-2">
-                <Label htmlFor="filter-date-from">Von (YYYYMMDD)</Label>
-                <Input
-                  id="filter-date-from"
-                  value={value.date_from}
-                  onChange={(e) =>
-                    onChange({ ...value, date_from: e.target.value })
+              <Calendar
+                mode="range"
+                selected={
+                  rangeFrom || rangeTo
+                    ? { from: rangeFrom ?? undefined, to: rangeTo ?? rangeFrom ?? undefined }
+                    : undefined
+                }
+                onSelect={(range) => {
+                  if (range?.from) {
+                    onChange({
+                      ...value,
+                      date_mode: 'range',
+                      input_date: '',
+                      date_from: dateToYYYYMMDD(range.from),
+                      date_to: range.to ? dateToYYYYMMDD(range.to) : dateToYYYYMMDD(range.from),
+                    })
                   }
-                  className="h-8"
-                />
-                <Label htmlFor="filter-date-to">Bis (YYYYMMDD)</Label>
-                <Input
-                  id="filter-date-to"
-                  value={value.date_to}
-                  onChange={(e) =>
-                    onChange({ ...value, date_to: e.target.value })
-                  }
-                  className="h-8"
-                />
-              </div>
+                }}
+                className="rounded-lg border"
+              />
             )}
-            <Button type="button" size="sm" onClick={onApply}>
+            <Button type="button" size="sm" onClick={onApply} className="w-full">
               Anwenden
             </Button>
           </div>
