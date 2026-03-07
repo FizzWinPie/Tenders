@@ -1,6 +1,4 @@
-"use client"
-
-import * as React from "react"
+import { useState } from "react"
 import { Calendar as UICalendar } from "#/components/ui/calendar"
 
 /**
@@ -8,7 +6,7 @@ import { Calendar as UICalendar } from "#/components/ui/calendar"
  * For the date filter with range + presets, see the date Filter in Filter.tsx.
  */
 export function Calendar() {
-  const [date, setDate] = React.useState<Date | undefined>(undefined)
+  const [date, setDate] = useState<Date | undefined>(undefined)
   return (
     <UICalendar
       mode="single"

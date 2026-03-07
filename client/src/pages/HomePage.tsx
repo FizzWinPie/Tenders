@@ -24,6 +24,7 @@ import type {
 } from '#/types/search'
 import { Award, Loader2, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import SkeletonCard from '#/components/SkeletonCard'
 
 function defaultDateFilter(): DateFilterState {
   return {
@@ -313,15 +314,15 @@ export default function HomePage() {
       )}
       <section className='flex flex-wrap items-end gap-2 rise-in overflow-hidden rounded-[2rem] px-6 pt-10 pb-4 sm:px-10 sm:pt-14 sm:pb-6'>
         <div className='flex flex-row w-full items-end gap-1'>
-            <InputButtonGroup
-              value={keywordInput}
-              onChange={setKeywordInput}
-              onSearch={handleSearch}
-              onAdd={(term) => {
-                setKeywords((k) => [...k, term])
-                setKeywordInput('')
-              }}
-            />
+          <InputButtonGroup
+            value={keywordInput}
+            onChange={setKeywordInput}
+            onSearch={handleSearch}
+            onAdd={(term) => {
+              setKeywords((k) => [...k, term])
+              setKeywordInput('')
+            }}
+          />
           {filterOptions && (
             <>
               <Filter
@@ -564,7 +565,11 @@ export default function HomePage() {
 
       <section ref={resultsSectionRef} className="mt-2 rounded-2xl px-6 py-6 sm:px-10">
         {loading ? (
-          <p className="text-muted-foreground">Laden…</p>
+          <div className='flex flex-col gap-4'>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
         ) : (
           <>
             <ul className="m-0 flex list-none flex-col gap-4 p-0">
@@ -582,7 +587,7 @@ export default function HomePage() {
                         <>
                           <span className="text-xs text-muted-foreground" aria-hidden>·</span>
                           <p className="text-xs font-medium text-green-700/70 dark:text-green-400">
-                          {getDaysLeftText(tender.deadline)}
+                            {getDaysLeftText(tender.deadline)}
                           </p>
                         </>
                       )}

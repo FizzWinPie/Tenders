@@ -78,6 +78,17 @@ const COUNTRY_LABELS: Record<string, string> = {
   POL: 'Polen',
 }
 
+const LANGUAGE_LABELS: Record<string, string> = {
+  DEU: 'Deutsch',
+  ENG: 'Englisch',
+  FRA: 'Französisch',
+  ITA: 'Italienisch',
+  SPA: 'Spanisch',
+  NLD: 'Niederländisch',
+  POL: 'Polnisch',
+  ELL: 'Griechisch',
+}
+
 const NOTICE_TYPE_LABELS: Record<string, string> = {
   'pin-cfc-social': 'PIN CFC Social',
   'pin-cfc-standard': 'PIN CFC Standard',
@@ -134,7 +145,11 @@ export function Filter(props: FilterProps) {
     return (
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline" aria-label={`Filter: ${displayLabel}`}>
+          <Button
+            variant="outline"
+            aria-label={`Filter: ${displayLabel}`}
+            className="data-[state=open]:bg-primary/10 data-[state=open]:text-primary"
+          >
             {displayLabel}
           </Button>
         </PopoverTrigger>
@@ -219,22 +234,26 @@ export function Filter(props: FilterProps) {
   const labelMap =
     type === 'country'
       ? COUNTRY_LABELS
-      : type === 'noticeType'
-        ? NOTICE_TYPE_LABELS
+      : type === 'language'
+        ? LANGUAGE_LABELS
         : null
   const getLabel = (opt: string) => (labelMap ? labelMap[opt] ?? opt : opt)
 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" aria-label={`Filter: ${displayLabel}`}>
+        <Button
+          variant="outline"
+          aria-label={`Filter: ${displayLabel}`}
+          className="data-[state=open]:bg-primary/10 data-[state=open]:text-primary"
+        >
           {displayLabel}
           {value.length > 0 && ` (${value.length})`}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-80 max-h-72 overflow-y-auto" align="start">
+      <PopoverContent className="w-full overflow-y-auto" align="start">
         <div className="grid gap-4">
-          <h4 className="text-sm font-medium">{displayLabel}</h4>
+          {/* <h4 className="text-sm font-medium">{displayLabel}</h4> */}
           <div className="grid gap-2">
             {options.map((opt) => {
               const checked = value.includes(opt)
