@@ -25,13 +25,24 @@ import type {
 import { Award, Loader2, Search, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import SkeletonCard from '#/components/SkeletonCard'
+import TooltipComponent from '#/components/TooltipComponent'
+
+const COMPANY_URL_TOOLTIP =
+  'Website Ihres Unternehmens eingeben. Daraus werden automatisch Suchbegriffe extrahiert, um passende Ausschreibungen zu finden.'
+
+const GUIDELINES_TOOLTIP =
+  'Ihre Präferenzen für die KI-Auswertung, z. B. Branche, Vertragslaufzeit oder Anforderungen. Die KI berücksichtigt diese bei der Bewertung der Ausschreibungen.'
+
+const PICK_WINNERS_TOOLTIP =
+  'Bewertet die ersten 5 Treffer mit KI und schlägt die 3 besten passenden Ausschreibungen vor. Nutzt optional Ihre Unternehmens-URL und Anweisungen.'
 
 function defaultDateFilter(): DateFilterState {
+  const { date_from, date_to } = getDefaultRangeWeek()
   return {
-    date_mode: 'exact',
+    date_mode: 'range',
     input_date: '',
-    date_from: '',
-    date_to: '',
+    date_from,
+    date_to,
   }
 }
 
@@ -424,7 +435,7 @@ export default function HomePage() {
       <section className="mt-4 flex flex-wrap items-stretch gap-4 px-6 sm:px-10">
         <div className="flex flex-1 flex-col gap-2 min-w-[200px]">
           <label htmlFor="company-url" className="text-sm font-medium text-muted-foreground">
-            Unternehmens-URL
+            Unternehmens-URL <TooltipComponent content={COMPANY_URL_TOOLTIP} />
           </label>
           <input
             id="company-url"
@@ -461,7 +472,7 @@ export default function HomePage() {
         </div>
         <div className="flex flex-1 flex-col gap-2 min-w-[200px]">
           <label htmlFor="user-guidelines" className="text-sm font-medium text-muted-foreground">
-            Anweisungen für die KI (empfohlen)
+            Anweisungen für die KI (empfohlen) <TooltipComponent content={GUIDELINES_TOOLTIP} />
           </label>
           <textarea
             id="user-guidelines"
@@ -469,32 +480,32 @@ export default function HomePage() {
             onChange={(e) => setGuidelines(e.target.value)}
             placeholder="z.B. Bevorzuge Langfristverträge"
             rows={2}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-y"
+            className="w-full h-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-y"
             aria-label="User guidelines for LLM"
           />
         </div>
         <div className="flex flex-col justify-end">
-          <button
-            type="button"
-            onClick={handlePickWinners}
-            disabled={tenders.length === 0 || pickLoading}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--chip-line)] bg-[var(--chip-bg)] px-4 py-2.5 text-sm font-semibold text-[var(--sea-ink)] shadow-sm transition hover:bg-[var(--link-bg-hover)] disabled:opacity-50 disabled:pointer-events-none"
-          >
-            {pickLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                Wird ausgewählt…
-              </>
-            ) : (
-              <>
-                <Award className="h-4 w-4" aria-hidden />
-                Top 3 Sieger per KI auswählen
-              </>
-            )}
-          </button>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Nutzt die ersten 5 Ausschreibungen aus den Ergebnissen
-          </p>
+          <span className="inline-flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handlePickWinners}
+              disabled={tenders.length === 0 || pickLoading}
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--chip-line)] bg-[var(--chip-bg)] px-4 py-2.5 text-sm font-semibold text-[var(--sea-ink)] shadow-sm transition hover:bg-[var(--link-bg-hover)] disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {pickLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Wird ausgewählt…
+                </>
+              ) : (
+                <>
+                  <Award className="h-4 w-4" aria-hidden />
+                  Top 3 Sieger per KI auswählen
+                </>
+              )}
+            </button>
+            <TooltipComponent content={PICK_WINNERS_TOOLTIP} />
+          </span>
         </div>
       </section>
 
